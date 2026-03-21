@@ -21,6 +21,7 @@ struct MeView: View {
     @State private var draftReminderTime: Date = Date()
     @State private var draftReminderFrequency: ReminderFrequency = .daily
     @FocusState private var isNameFieldFocused: Bool
+    @FocusState private var keyboardWarmUpFocused: Bool
 
     init(deps: Dependencies, appViewModel: AppViewModel) {
         self.deps = deps
@@ -49,6 +50,13 @@ struct MeView: View {
                 .padding(.top, 18)
                 .padding(.bottom, 100)
             }
+            if viewModel.user != nil {
+                modalContent(for: .editName)
+                    .frame(width: 1, height: 1)
+                    .opacity(0.001)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
             if let activeModal {
                 Color.black.opacity(0.2)
                     .ignoresSafeArea()
@@ -61,11 +69,14 @@ struct MeView: View {
                     .transition(.scale.combined(with: .opacity))
                     .zIndex(2)
             }
+            TextField("", text: .constant(""))
+                .frame(width: 0, height: 0)
+                .opacity(0)
+                .focused($keyboardWarmUpFocused)
         }
         .sheet(isPresented: $isShowingPhotoPicker) {
             CapturePhotoPicker(
                 isPresented: $isShowingPhotoPicker,
-                sourceType: .photoLibrary,
                 onImagePicked: { image in
                     viewModel.saveProfileImage(image)
                 }
@@ -83,6 +94,12 @@ struct MeView: View {
             draftReminderFrequency = viewModel.reminderFrequency
             await viewModel.refreshStats()
             await viewModel.refreshNotificationPermission()
+            if viewModel.user != nil {
+                try? await Task.sleep(for: .seconds(0.5))
+                keyboardWarmUpFocused = true
+                try? await Task.sleep(for: .milliseconds(100))
+                keyboardWarmUpFocused = false
+            }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.88), value: activeModal)
     }

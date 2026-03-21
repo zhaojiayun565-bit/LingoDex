@@ -41,7 +41,6 @@ struct CaptureFlowView: View {
         .sheet(isPresented: $isShowingPhotoPicker) {
             CapturePhotoPicker(
                 isPresented: $isShowingPhotoPicker,
-                sourceType: .photoLibrary,
                 onImagePicked: { image in
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     Task { await viewModel.processCapturedImage(image) }

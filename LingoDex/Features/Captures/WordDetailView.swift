@@ -63,6 +63,8 @@ struct WordDetailView: View {
             }
         }
         .onAppear {
+            try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
+            try? AVAudioSession.sharedInstance().setActive(true)
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             withAnimation(.spring(response: 0.55, dampingFraction: 0.82)) {
                 flipDegrees = 0
@@ -188,6 +190,7 @@ struct WordDetailView: View {
                     .clipShape(Circle())
                     .overlay(Circle().stroke(DesignTokens.colors.cardStroke, lineWidth: 1))
                     .scaleEffect(isSpeakerPulsing ? 1.05 : 1.0)
+                    .animation(isSpeaking ? .easeInOut(duration: 0.5).repeatForever(autoreverses: true) : .easeOut(duration: 0.25), value: isSpeakerPulsing)
             }
             .buttonStyle(.plain)
             .disabled(isSpeaking)
@@ -292,13 +295,9 @@ struct WordDetailView: View {
         isSpeakerPulsing = false
 
         Task {
-            await MainActor.run {
-                withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) {
-                    isSpeakerPulsing = true
-                }
-            }
+            isSpeakerPulsing = true
             do {
-                try await deps.tts.speak(displayedWord.learnWord, language: .english)
+                try await deps.tts.speak(displayedWord.learnWord, language: .currentLearning)
             } catch { /* TTS error ignored for UX */ }
             await MainActor.run {
                 isSpeakerPulsing = false

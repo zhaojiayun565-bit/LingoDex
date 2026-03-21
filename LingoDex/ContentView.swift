@@ -7,6 +7,7 @@
 
 import SwiftUI
 import UIKit
+import PhotosUI
 
 struct ContentView: View {
     var body: some View {
@@ -83,7 +84,6 @@ private struct MainTabContainer: View {
         .sheet(isPresented: $isShowingPhotoPicker) {
             CapturePhotoPicker(
                 isPresented: $isShowingPhotoPicker,
-                sourceType: .photoLibrary,
                 onImagePicked: { image in
                     capturesViewModel.captureFlowPhase = .processing
                     capturesViewModel.isProcessingCapture = true
@@ -98,6 +98,14 @@ private struct MainTabContainer: View {
         .task {
             if viewModel.authUser == nil {
                 viewModel.authUser = deps.auth.currentUser
+            }
+            // Warm up Photos framework so the photo picker sheet opens faster
+            try? await Task.sleep(for: .seconds(0.8))
+            _ = PHPickerConfiguration(photoLibrary: .shared())
+            // Pre-warm TTS so first speaker tap works immediately (iOS loads voices on-demand)
+            Task.detached(priority: .utility) {
+                try? await Task.sleep(for: .seconds(1))
+                try? await deps.tts.speak(" ", language: .currentLearning)
             }
         }
     }

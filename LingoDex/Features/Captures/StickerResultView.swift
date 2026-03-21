@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import AVFoundation
 
 /// Post-capture result: extracted object, translation, TTS, mic, Save/Cancel. Layout matches WordDetailView.
 struct StickerResultView: View {
@@ -44,6 +45,8 @@ struct StickerResultView: View {
             }
         }
         .onAppear {
+            try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
+            try? AVAudioSession.sharedInstance().setActive(true)
             withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
                 appearScale = 1.0
                 appearOpacity = 1
@@ -134,6 +137,7 @@ struct StickerResultView: View {
                     .clipShape(Circle())
                     .overlay(Circle().stroke(DesignTokens.colors.cardStroke, lineWidth: 1))
                     .scaleEffect(isSpeakerPulsing ? 1.05 : 1.0)
+                    .animation(isSpeaking ? .easeInOut(duration: 0.6).repeatForever(autoreverses: true) : .easeOut(duration: 0.25), value: isSpeakerPulsing)
             }
             .buttonStyle(.plain)
             .disabled(isSpeaking)
@@ -160,13 +164,9 @@ struct StickerResultView: View {
         isSpeakerPulsing = false
 
         Task {
-            await MainActor.run {
-                withAnimation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) {
-                    isSpeakerPulsing = true
-                }
-            }
+            isSpeakerPulsing = true
             do {
-                try await deps.tts.speak(word.learnWord, language: .english)
+                try await deps.tts.speak(word.learnWord, language: .currentLearning)
             } catch { /* ignore */ }
             await MainActor.run {
                 isSpeakerPulsing = false

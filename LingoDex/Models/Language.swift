@@ -32,5 +32,11 @@ enum Language: String, CaseIterable, Identifiable, Codable, Hashable {
         case .korean: "ko"
         }
     }
+
+    /// Current learning language from persisted user preference.
+    static var currentLearning: Language {
+        let raw = UserDefaults.standard.string(forKey: "lingodex_learning_language")
+        return (raw.flatMap { Language(rawValue: $0) }) ?? .english
+    }
 }
 

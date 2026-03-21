@@ -53,38 +53,50 @@ struct MockTranslationClient: TranslationClient {
     }
 }
 
+private var _ttsDelegateKey: UInt8 = 0
+
 struct AppleTTSClient: TTSClient {
     func speak(_ text: String, language: Language) async throws {
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
+        try? AVAudioSession.sharedInstance().setActive(true)
+
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = AVSpeechSynthesisVoice(language: language.localeTag)
-        utterance.rate = 0.95
+        utterance.rate = AVSpeechUtteranceDefaultSpeechRate
 
         return try await withCheckedThrowingContinuation { continuation in
             let synthesizer = AVSpeechSynthesizer()
 
             final class Delegate: NSObject, AVSpeechSynthesizerDelegate {
                 let continuation: CheckedContinuation<Void, Error>
+                var synthesizer: AVSpeechSynthesizer?
                 var isResolved = false
 
-                init(continuation: CheckedContinuation<Void, Error>) {
+                init(continuation: CheckedContinuation<Void, Error>, synthesizer: AVSpeechSynthesizer) {
                     self.continuation = continuation
+                    self.synthesizer = synthesizer
                 }
 
-                func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+                func speechSynthesizer(_ synth: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
                     guard !isResolved else { return }
                     isResolved = true
+                    synthesizer = nil
+                    objc_setAssociatedObject(synth, &_ttsDelegateKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
                     continuation.resume(returning: ())
                 }
 
-                func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+                func speechSynthesizer(_ synth: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
                     guard !isResolved else { return }
                     isResolved = true
+                    synthesizer = nil
+                    objc_setAssociatedObject(synth, &_ttsDelegateKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
                     continuation.resume(throwing: LingoDexServiceError.recognitionFailed)
                 }
             }
 
-            let delegate = Delegate(continuation: continuation)
+            let delegate = Delegate(continuation: continuation, synthesizer: synthesizer)
             synthesizer.delegate = delegate
+            objc_setAssociatedObject(synthesizer, &_ttsDelegateKey, delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
             synthesizer.speak(utterance)
         }
     }

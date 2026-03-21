@@ -37,9 +37,7 @@ import UserNotifications
         if let systemLang = Locale.current.languageCode {
             nativeLanguage = Self.languageFromSystemCode(systemLang)
         }
-
-        hydratePersistedState()
-        refreshProfileName()
+        Task { await hydratePersistedStateAsync() }
     }
 
     /// Loads dynamic profile counts from local persisted capture sessions.
@@ -158,29 +156,30 @@ import UserNotifications
         }
     }
 
-    private func hydratePersistedState() {
-        if let savedName = UserDefaults.standard.string(forKey: profileNameKey), !savedName.isEmpty {
-            profileName = savedName
-        }
-
-        if let savedNative = UserDefaults.standard.string(forKey: nativeLanguageKey),
-           let lang = Language(rawValue: savedNative) {
-            nativeLanguage = lang
-        }
-
-        if let saved = UserDefaults.standard.string(forKey: learningLanguageKey),
-           let lang = Language(rawValue: saved) {
-            learningLanguage = lang
-        }
-
-        if let imageData = UserDefaults.standard.data(forKey: profileImageKey),
-           let image = UIImage(data: imageData) {
-            profileImage = image
-        }
-
+    /// Loads persisted state asynchronously; profile image is decoded off main thread.
+    private func hydratePersistedStateAsync() async {
+        let savedName = UserDefaults.standard.string(forKey: profileNameKey)
+        let savedNative = UserDefaults.standard.string(forKey: nativeLanguageKey)
+        let savedLearning = UserDefaults.standard.string(forKey: learningLanguageKey)
+        let imageData = UserDefaults.standard.data(forKey: profileImageKey)
         let savedHour = UserDefaults.standard.integer(forKey: reminderHourKey)
         let savedMinute = UserDefaults.standard.integer(forKey: reminderMinuteKey)
-        if savedHour >= 0 && savedHour < 24 && savedMinute >= 0 && savedMinute < 60 {
+        let savedFrequency = UserDefaults.standard.string(forKey: reminderFrequencyKey)
+        let savedMemberYear = UserDefaults.standard.integer(forKey: memberSinceYearKey)
+
+        let decodedImage: UIImage? = await Task.detached(priority: .userInitiated) {
+            guard let imageData, let img = UIImage(data: imageData) else { return nil }
+            return img
+        }.value
+
+        if let savedName, !savedName.isEmpty { profileName = savedName }
+        else { profileName = user?.displayName ?? "Learner" }
+
+        if let savedNative, let lang = Language(rawValue: savedNative) { nativeLanguage = lang }
+        if let savedLearning, let lang = Language(rawValue: savedLearning) { learningLanguage = lang }
+        if let decodedImage { profileImage = decodedImage }
+
+        if savedHour >= 0, savedHour < 24, savedMinute >= 0, savedMinute < 60 {
             remindersTime = Calendar.current.date(
                 bySettingHour: savedHour,
                 minute: savedMinute,
@@ -188,13 +187,9 @@ import UserNotifications
                 of: Date()
             ) ?? remindersTime
         }
-
-        if let savedFrequency = UserDefaults.standard.string(forKey: reminderFrequencyKey),
-           let parsed = ReminderFrequency(rawValue: savedFrequency) {
+        if let savedFrequency, let parsed = ReminderFrequency(rawValue: savedFrequency) {
             reminderFrequency = parsed
         }
-
-        let savedMemberYear = UserDefaults.standard.integer(forKey: memberSinceYearKey)
         if savedMemberYear > 1900 {
             memberSinceYear = savedMemberYear
         } else {

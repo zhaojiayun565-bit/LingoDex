@@ -91,7 +91,7 @@ struct StoryBottomSheet: View {
                             Task {
                                 isSpeakingWord = true
                                 defer { isSpeakingWord = false }
-                                try? await deps.tts.speak(entry.learnWord, language: .english)
+                                try? await deps.tts.speak(entry.learnWord, language: .currentLearning)
                             }
                         } label: {
                             Text(entry.learnWord)

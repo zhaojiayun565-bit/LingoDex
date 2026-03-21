@@ -1,26 +1,28 @@
 import SwiftUI
 import UIKit
+import PhotosUI
 
+/// Presents the system photo picker (PHPicker) for selecting images from the library.
 struct CapturePhotoPicker: UIViewControllerRepresentable {
     @Binding var isPresented: Bool
-    let sourceType: UIImagePickerController.SourceType
     let onImagePicked: (UIImage) -> Void
+
+    func makeUIViewController(context: Context) -> PHPickerViewController {
+        var config = PHPickerConfiguration(photoLibrary: .shared())
+        config.selectionLimit = 1
+        config.filter = .images
+        let picker = PHPickerViewController(configuration: config)
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {}
 
     func makeCoordinator() -> Coordinator {
         Coordinator(isPresented: $isPresented, onImagePicked: onImagePicked)
     }
 
-    func makeUIViewController(context: Context) -> UIImagePickerController {
-        let picker = UIImagePickerController()
-        picker.delegate = context.coordinator
-        picker.sourceType = sourceType
-        picker.allowsEditing = false
-        return picker
-    }
-
-    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
-
-    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
+    final class Coordinator: NSObject, PHPickerViewControllerDelegate {
         @Binding private var isPresented: Bool
         private let onImagePicked: (UIImage) -> Void
 
@@ -29,16 +31,17 @@ struct CapturePhotoPicker: UIViewControllerRepresentable {
             self.onImagePicked = onImagePicked
         }
 
-        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
-            if let image = info[.originalImage] as? UIImage {
-                onImagePicked(image)
+        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+            defer { isPresented = false }
+            guard let result = results.first else { return }
+            let provider = result.itemProvider
+            guard provider.canLoadObject(ofClass: UIImage.self) else { return }
+            provider.loadObject(ofClass: UIImage.self) { [weak self] object, _ in
+                guard let image = object as? UIImage else { return }
+                Task { @MainActor in
+                    self?.onImagePicked(image)
+                }
             }
-            isPresented = false
-        }
-
-        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-            isPresented = false
         }
     }
 }
-
