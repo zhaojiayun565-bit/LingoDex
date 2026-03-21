@@ -1,5 +1,7 @@
 import Foundation
 import Observation
+import UIKit
+import UserNotifications
 
 @MainActor
 @Observable final class MeViewModel {
@@ -8,8 +10,26 @@ import Observation
     var user: AuthUser?
     var nativeLanguage: Language = .english
     var learningLanguage: Language = .english
+    var profileName: String = "Learner"
+    var profileImage: UIImage?
+    var remindersTime: Date = Date()
+    var reminderFrequency: ReminderFrequency = .daily
+    var notificationPermission: UNAuthorizationStatus = .notDetermined
+    var totalObjectsCaptured: Int = 0
+    var totalStoriesLearned: Int = 0
+    var memberSinceYear: Int = Calendar.current.component(.year, from: Date())
 
     private let learningLanguageKey = "lingodex_learning_language"
+    private let nativeLanguageKey = "lingodex_native_language"
+    private let profileNameKey = "lingodex_profile_name"
+    private let profileImageKey = "lingodex_profile_image_data"
+    private let reminderHourKey = "lingodex_reminder_hour"
+    private let reminderMinuteKey = "lingodex_reminder_minute"
+    private let reminderFrequencyKey = "lingodex_reminder_frequency"
+    private let memberSinceYearKey = "lingodex_member_since_year"
+    private let reminderRequestPrefix = "lingodex_reminder_"
+    // Replace with the real App Store app id when available.
+    private let appStoreAppId = "0000000000"
 
     init(deps: Dependencies) {
         self.deps = deps
@@ -18,9 +38,93 @@ import Observation
             nativeLanguage = Self.languageFromSystemCode(systemLang)
         }
 
-        if let saved = UserDefaults.standard.string(forKey: learningLanguageKey),
-           let lang = Language(rawValue: saved) {
-            learningLanguage = lang
+        hydratePersistedState()
+        refreshProfileName()
+    }
+
+    /// Loads dynamic profile counts from local persisted capture sessions.
+    func refreshStats() async {
+        do {
+            let sessions = try await deps.localStore.loadSessions()
+            totalObjectsCaptured = sessions.reduce(0) { $0 + $1.words.count }
+            // Stories persistence is not implemented yet in the store.
+            totalStoriesLearned = 0
+        } catch {
+            totalObjectsCaptured = 0
+        }
+    }
+
+    /// Refreshes the currently resolved notification permission status.
+    func refreshNotificationPermission() async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        notificationPermission = settings.authorizationStatus
+    }
+
+    /// Requests push notification authorization and returns the latest status.
+    func requestNotificationPermissionIfNeeded() async -> UNAuthorizationStatus {
+        if notificationPermission == .notDetermined {
+            do {
+                _ = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+            } catch {
+                // No-op: we still return the latest status below.
+            }
+        }
+        await refreshNotificationPermission()
+        return notificationPermission
+    }
+
+    /// Saves reminder values and schedules local notifications accordingly.
+    func saveReminders(time: Date, frequency: ReminderFrequency) async {
+        remindersTime = time
+        reminderFrequency = frequency
+        persistReminderSettings()
+        await scheduleReminderNotifications()
+    }
+
+    /// Persists selected profile image for future launches.
+    func saveProfileImage(_ image: UIImage) {
+        profileImage = image
+        if let data = image.jpegData(compressionQuality: 0.82) {
+            UserDefaults.standard.set(data, forKey: profileImageKey)
+        }
+    }
+
+    /// Persists profile name and updates visible user name.
+    func saveProfileName(_ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        profileName = trimmed
+        if user != nil {
+            user?.displayName = trimmed
+        }
+        UserDefaults.standard.set(trimmed, forKey: profileNameKey)
+    }
+
+    /// Persists native and learning language selections.
+    func saveLanguages(native: Language, learning: Language) {
+        nativeLanguage = native
+        learningLanguage = learning
+        UserDefaults.standard.set(native.rawValue, forKey: nativeLanguageKey)
+        UserDefaults.standard.set(learning.rawValue, forKey: learningLanguageKey)
+    }
+
+    /// Opens App Store review page for this app.
+    func openRateAppPage() {
+        guard let url = URL(string: "itms-apps://itunes.apple.com/app/id\(appStoreAppId)?action=write-review") else { return }
+        Task { @MainActor in
+            UIApplication.shared.open(url)
+        }
+    }
+
+    /// Returns a flag emoji for a language card preview.
+    func flag(for language: Language) -> String {
+        switch language {
+        case .english: return "🇺🇸"
+        case .french: return "🇫🇷"
+        case .spanish: return "🇪🇸"
+        case .mandarinChinese: return "🇨🇳"
+        case .japanese: return "🇯🇵"
+        case .korean: return "🇰🇷"
         }
     }
 
@@ -41,15 +145,149 @@ import Observation
         // #endregion
 
         user = try await deps.auth.signInWithAppleIdToken(idToken, nonce: nonce, fullName: fullName)
+        refreshProfileName()
     }
 
     func signOut() async {
         do {
             try await deps.auth.signOut()
             user = nil
+            refreshProfileName()
         } catch {
             // No-op for MVP.
         }
+    }
+
+    private func hydratePersistedState() {
+        if let savedName = UserDefaults.standard.string(forKey: profileNameKey), !savedName.isEmpty {
+            profileName = savedName
+        }
+
+        if let savedNative = UserDefaults.standard.string(forKey: nativeLanguageKey),
+           let lang = Language(rawValue: savedNative) {
+            nativeLanguage = lang
+        }
+
+        if let saved = UserDefaults.standard.string(forKey: learningLanguageKey),
+           let lang = Language(rawValue: saved) {
+            learningLanguage = lang
+        }
+
+        if let imageData = UserDefaults.standard.data(forKey: profileImageKey),
+           let image = UIImage(data: imageData) {
+            profileImage = image
+        }
+
+        let savedHour = UserDefaults.standard.integer(forKey: reminderHourKey)
+        let savedMinute = UserDefaults.standard.integer(forKey: reminderMinuteKey)
+        if savedHour >= 0 && savedHour < 24 && savedMinute >= 0 && savedMinute < 60 {
+            remindersTime = Calendar.current.date(
+                bySettingHour: savedHour,
+                minute: savedMinute,
+                second: 0,
+                of: Date()
+            ) ?? remindersTime
+        }
+
+        if let savedFrequency = UserDefaults.standard.string(forKey: reminderFrequencyKey),
+           let parsed = ReminderFrequency(rawValue: savedFrequency) {
+            reminderFrequency = parsed
+        }
+
+        let savedMemberYear = UserDefaults.standard.integer(forKey: memberSinceYearKey)
+        if savedMemberYear > 1900 {
+            memberSinceYear = savedMemberYear
+        } else {
+            UserDefaults.standard.set(memberSinceYear, forKey: memberSinceYearKey)
+        }
+    }
+
+    private func refreshProfileName() {
+        if let savedName = UserDefaults.standard.string(forKey: profileNameKey), !savedName.isEmpty {
+            profileName = savedName
+            return
+        }
+        profileName = user?.displayName ?? "Learner"
+    }
+
+    private func persistReminderSettings() {
+        let comps = Calendar.current.dateComponents([.hour, .minute], from: remindersTime)
+        UserDefaults.standard.set(comps.hour ?? 20, forKey: reminderHourKey)
+        UserDefaults.standard.set(comps.minute ?? 0, forKey: reminderMinuteKey)
+        UserDefaults.standard.set(reminderFrequency.rawValue, forKey: reminderFrequencyKey)
+    }
+
+    private func scheduleReminderNotifications() async {
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: reminderIdentifiers)
+
+        guard notificationPermission == .authorized || notificationPermission == .provisional else { return }
+
+        let comps = Calendar.current.dateComponents([.hour, .minute], from: remindersTime)
+        let hour = comps.hour ?? 20
+        let minute = comps.minute ?? 0
+
+        let title = "Time to practice"
+        let body = "Review your learned vocabulary in LingoDex."
+
+        switch reminderFrequency {
+        case .daily:
+            var triggerComponents = DateComponents()
+            triggerComponents.hour = hour
+            triggerComponents.minute = minute
+            await addReminderRequest(id: "\(reminderRequestPrefix)daily", title: title, body: body, components: triggerComponents)
+        case .weekdays:
+            for weekday in 2...6 {
+                var triggerComponents = DateComponents()
+                triggerComponents.weekday = weekday
+                triggerComponents.hour = hour
+                triggerComponents.minute = minute
+                await addReminderRequest(
+                    id: "\(reminderRequestPrefix)weekday_\(weekday)",
+                    title: title,
+                    body: body,
+                    components: triggerComponents
+                )
+            }
+        case .mondayWednesdayFriday:
+            for weekday in [2, 4, 6] {
+                var triggerComponents = DateComponents()
+                triggerComponents.weekday = weekday
+                triggerComponents.hour = hour
+                triggerComponents.minute = minute
+                await addReminderRequest(
+                    id: "\(reminderRequestPrefix)mwf_\(weekday)",
+                    title: title,
+                    body: body,
+                    components: triggerComponents
+                )
+            }
+        }
+    }
+
+    private var reminderIdentifiers: [String] {
+        [
+            "\(reminderRequestPrefix)daily",
+            "\(reminderRequestPrefix)weekday_2",
+            "\(reminderRequestPrefix)weekday_3",
+            "\(reminderRequestPrefix)weekday_4",
+            "\(reminderRequestPrefix)weekday_5",
+            "\(reminderRequestPrefix)weekday_6",
+            "\(reminderRequestPrefix)mwf_2",
+            "\(reminderRequestPrefix)mwf_4",
+            "\(reminderRequestPrefix)mwf_6",
+        ]
+    }
+
+    private func addReminderRequest(id: String, title: String, body: String, components: DateComponents) async {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+
+        let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: true)
+        let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
+        try? await UNUserNotificationCenter.current().add(request)
     }
 
     private static func languageFromSystemCode(_ code: String) -> Language {
@@ -60,6 +298,22 @@ import Observation
         case "ko": return .korean
         case "zh": return .mandarinChinese
         default: return .english
+        }
+    }
+}
+
+enum ReminderFrequency: String, CaseIterable, Identifiable {
+    case daily
+    case weekdays
+    case mondayWednesdayFriday
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .daily: return "Daily"
+        case .weekdays: return "Weekdays"
+        case .mondayWednesdayFriday: return "Mon / Wed / Fri"
         }
     }
 }
