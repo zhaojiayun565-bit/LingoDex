@@ -256,12 +256,19 @@
 				DEVELOPMENT_TEAM = 2L8UB6KF64;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "We need camera access to capture objects for language learning.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We need microphone access to record pronunciation for verification.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We need photo library access to choose photos for learning.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "We need speech recognition access to verify your pronunciation.";
+				INFOPLIST_KEY_SUPABASE_ANON_KEY = "sb_publishable_vZV21wLUsUExR_J3g_zr7A_YFFLNvd-";
+				INFOPLIST_KEY_SUPABASE_URL = "https://rcksagkoedmwrveummnz.supabase.co";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 17;
+				INFOPLIST_KEY_UIUserInterfaceStyle = Light;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -289,12 +296,19 @@
 				DEVELOPMENT_TEAM = 2L8UB6KF64;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "We need camera access to capture objects for language learning.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We need microphone access to record pronunciation for verification.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We need photo library access to choose photos for learning.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "We need speech recognition access to verify your pronunciation.";
+				INFOPLIST_KEY_SUPABASE_ANON_KEY = "sb_publishable_vZV21wLUsUExR_J3g_zr7A_YFFLNvd-";
+				INFOPLIST_KEY_SUPABASE_URL = "https://rcksagkoedmwrveummnz.supabase.co";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 17;
+				INFOPLIST_KEY_UIUserInterfaceStyle = Light;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
