@@ -25,7 +25,7 @@ struct CapturesView: View {
             NavigationStack {
                 ZStack {
                     ScrollView {
-                        VStack(alignment: .leading, spacing: DesignTokens.layout.capturesSectionSpacing) {
+                        LazyVStack(alignment: .leading, spacing: DesignTokens.layout.capturesSectionSpacing) {
                             content
                         }
                     .padding(.horizontal, DesignTokens.layout.capturesHorizontalPadding)
@@ -272,11 +272,7 @@ private struct WordCard: View {
         }
         .buttonStyle(.plain)
         .task(id: word.imageFileName) {
-            do {
-                uiImage = try await deps.localStore.loadImage(fileName: word.imageFileName)
-            } catch {
-                uiImage = nil
-            }
+            uiImage = await deps.imageLoader.loadThumbnail(fileName: word.imageFileName, maxSize: 200)
         }
     }
 }

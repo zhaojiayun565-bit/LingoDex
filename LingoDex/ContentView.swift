@@ -20,6 +20,7 @@ private struct MainTabContainer: View {
     @State private var capturesViewModel = CapturesViewModel(deps: Dependencies.live)
     @State private var isShowingCaptureFlow = false
     @State private var isShowingPhotoPicker = false
+    @State private var isKeyboardVisible = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -56,10 +57,22 @@ private struct MainTabContainer: View {
                     #endif
                 }
             )
+            // Keep only the custom tab bar pinned so keyboard overlays it.
+            .ignoresSafeArea(.keyboard, edges: .bottom)
+            .opacity(isKeyboardVisible ? 0 : 1)
+            .offset(y: isKeyboardVisible ? 120 : 0)
+            .allowsHitTesting(!isKeyboardVisible)
+            .animation(.easeOut(duration: 0.2), value: isKeyboardVisible)
             .padding(.bottom, 14)
         }
         .background(DesignTokens.colors.background.ignoresSafeArea())
         .tint(DesignTokens.colors.primary)
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            isKeyboardVisible = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            isKeyboardVisible = false
+        }
         .fullScreenCover(isPresented: $isShowingCaptureFlow) {
             CaptureFlowView(
                 isPresented: $isShowingCaptureFlow,
@@ -72,13 +85,13 @@ private struct MainTabContainer: View {
                 isPresented: $isShowingPhotoPicker,
                 sourceType: .photoLibrary,
                 onImagePicked: { image in
-                    Task { @MainActor in
-                        await capturesViewModel.processCapturedImage(image)
-                        if capturesViewModel.captureFlowPhase == .result {
-                            isShowingPhotoPicker = false
-                            isShowingCaptureFlow = true
-                        }
-                    }
+                    capturesViewModel.captureFlowPhase = .processing
+                    capturesViewModel.isProcessingCapture = true
+                    capturesViewModel.pendingWord = nil
+                    capturesViewModel.pendingExtractedImage = nil
+                    isShowingPhotoPicker = false
+                    isShowingCaptureFlow = true
+                    Task { await capturesViewModel.processCapturedImage(image) }
                 }
             )
         }

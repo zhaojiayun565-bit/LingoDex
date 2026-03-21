@@ -6,8 +6,9 @@ import CoreImage.CIFilterBuiltins
 
 /// Extracts foreground objects from an image using Vision, removing the background.
 /// Uses VNGenerateForegroundInstanceMaskRequest (iOS 17+). Works on device only; Simulator unsupported.
-struct BackgroundRemovalService: Sendable {
-    private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
+/// CIContext is lazy to avoid blocking app launch with GPU setup.
+final class BackgroundRemovalService: Sendable {
+    private lazy var ciContext: CIContext = { CIContext(options: [.useSoftwareRenderer: false]) }()
 
     /// Returns the input image with background removed (transparent). Preserves orientation.
     func removeBackground(from image: UIImage) async throws -> UIImage {

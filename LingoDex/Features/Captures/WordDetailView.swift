@@ -57,7 +57,7 @@ struct WordDetailView: View {
         }
         .task(id: displayedWord.imageFileName) {
             do {
-                image = try await deps.localStore.loadImage(fileName: displayedWord.imageFileName)
+                image = try await deps.imageLoader.loadFullImage(fileName: displayedWord.imageFileName)
             } catch {
                 image = nil
             }

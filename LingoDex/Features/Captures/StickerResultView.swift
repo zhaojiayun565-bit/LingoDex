@@ -1,13 +1,14 @@
 import SwiftUI
 import UIKit
 
-/// Sticker-style result card: extracted object, translation text, and actions (TTS, mic, Save).
+/// Post-capture result: extracted object, translation, TTS, mic, Save/Cancel. Layout matches WordDetailView.
 struct StickerResultView: View {
     let word: WordEntry
     let extractedImage: UIImage
     let deps: Dependencies
     let onSave: () -> Void
     let onDismiss: () -> Void
+    let onRetry: () -> Void
     let onTryPronunciation: (WordEntry) -> Void
 
     @State private var isSaving = false
@@ -17,28 +18,29 @@ struct StickerResultView: View {
     @State private var appearOpacity: Double = 0
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 24) {
-            // Sticker card: object + text
-            stickerCard
-                .scaleEffect(isSaving ? 0.6 : appearScale)
-                .opacity(isSaving ? 0 : appearOpacity)
-                .animation(.spring(response: 0.5, dampingFraction: 0.8), value: appearScale)
-                .animation(.easeOut(duration: 0.35), value: isSaving)
+        ZStack {
+            DesignTokens.colors.background.ignoresSafeArea()
 
-            // Action row: sound, mic, Save
-            actionRow
-        }
-            .padding(.horizontal, 20)
-            .padding(.top, 24)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(DesignTokens.colors.background.ignoresSafeArea())
-        }
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
-                    onDismiss()
-                }
+            VStack(spacing: 0) {
+                topBar
+                Spacer(minLength: 24)
+                mainCard
+                    .scaleEffect(isSaving ? 0.6 : appearScale)
+                    .opacity(isSaving ? 0 : appearOpacity)
+                    .animation(.spring(response: 0.5, dampingFraction: 0.8), value: appearScale)
+                    .animation(.easeOut(duration: 0.35), value: isSaving)
+                Spacer(minLength: 24)
+                wordLabels
+                Spacer(minLength: 40)
+                actionButtons
+                Spacer(minLength: 24)
+                SaveCancelButtons(
+                    onSave: saveAndAnimate,
+                    onCancel: nil,
+                    isSaveDisabled: isSaving
+                )
+                .padding(.horizontal, 20)
+                Spacer(minLength: 60)
             }
         }
         .onAppear {
@@ -49,83 +51,106 @@ struct StickerResultView: View {
         }
     }
 
-    private var stickerCard: some View {
-        VStack(spacing: 16) {
-            // Object area with soft shadow/glow
-            ZStack {
-                Image(uiImage: extractedImage)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxHeight: 200)
-                    .shadow(color: DesignTokens.colors.stickerGlow, radius: DesignTokens.layout.stickerShadowRadius)
+    private var topBar: some View {
+        HStack {
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                onRetry()
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(DesignTokens.colors.capturesTextPrimary)
+                    .frame(width: DesignTokens.layout.capturesIconButtonSize, height: DesignTokens.layout.capturesIconButtonSize)
+                    .background(Color.white)
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(DesignTokens.colors.cardStroke, lineWidth: 1))
             }
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 24)
+            .padding(.leading, 20)
+            .padding(.top, 32)
 
-            // Text block
-            VStack(spacing: 4) {
-                Text(word.learnWord)
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
-                Text(word.nativeWord)
-                    .font(.system(size: 16))
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.vertical, 28)
-        .padding(.horizontal, 20)
-        .background(Color.white)
-        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.layout.stickerCornerRadius, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: DesignTokens.layout.stickerCornerRadius, style: .continuous)
-                .stroke(DesignTokens.colors.cardStroke, lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 4)
-    }
-
-    private var actionRow: some View {
-        VStack(spacing: 16) {
-            HStack(spacing: 20) {
-                // Sound (TTS)
-                Button {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    pronounce()
-                } label: {
-                    Image(systemName: "speaker.wave.2.fill")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 56, height: 56)
-                        .background(Circle().fill(DesignTokens.colors.primary))
-                        .scaleEffect(isSpeakerPulsing ? 1.08 : 1.0)
-                }
-                .buttonStyle(.plain)
-                .disabled(isSpeaking)
-
-                // Mic (pronunciation check)
-                Button {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    onTryPronunciation(word)
-                } label: {
-                    Image(systemName: "mic.fill")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(DesignTokens.colors.primary)
-                        .frame(width: 56, height: 56)
-                        .background(Circle().fill(DesignTokens.colors.primary.opacity(0.12)))
-                }
-                .buttonStyle(.plain)
-            }
+            Spacer()
 
             Button {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                saveAndAnimate()
+                onDismiss()
             } label: {
-                Text("Save to captures")
-                    .font(.system(size: 17, weight: .semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
+                Image(systemName: "xmark")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(DesignTokens.colors.capturesTextPrimary)
+                    .frame(width: DesignTokens.layout.capturesIconButtonSize, height: DesignTokens.layout.capturesIconButtonSize)
+                    .background(Color.white)
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(DesignTokens.colors.cardStroke, lineWidth: 1))
             }
-            .buttonStyle(.borderedProminent)
-            .tint(DesignTokens.colors.primary)
-            .disabled(isSaving)
+            .padding(.trailing, 20)
+            .padding(.top, 32)
+        }
+    }
+
+    private var mainCard: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color.white)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(DesignTokens.colors.cardStroke, lineWidth: 1)
+                )
+                .frame(width: 290, height: 349)
+
+            Image(uiImage: extractedImage)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: 260, maxHeight: 280)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .padding(24)
+        }
+    }
+
+    private var wordLabels: some View {
+        VStack(spacing: 16) {
+            Text(word.learnWord)
+                .font(CaptureTypography.detailWordTitle())
+                .foregroundStyle(DesignTokens.colors.capturesTextPrimary)
+                .multilineTextAlignment(.center)
+
+            Text(word.nativeWord)
+                .font(CaptureTypography.detailPhonetic())
+                .foregroundStyle(DesignTokens.colors.capturesTextSecondary)
+                .multilineTextAlignment(.center)
+        }
+    }
+
+    private var actionButtons: some View {
+        HStack(spacing: 40) {
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                pronounce()
+            } label: {
+                Image(systemName: "speaker.wave.2.fill")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(DesignTokens.colors.capturesTextSecondary)
+                    .frame(width: DesignTokens.layout.detailActionButtonSize, height: DesignTokens.layout.detailActionButtonSize)
+                    .background(Color.white)
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(DesignTokens.colors.cardStroke, lineWidth: 1))
+                    .scaleEffect(isSpeakerPulsing ? 1.05 : 1.0)
+            }
+            .buttonStyle(.plain)
+            .disabled(isSpeaking)
+
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                onTryPronunciation(word)
+            } label: {
+                Image(systemName: "mic.fill")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(DesignTokens.colors.capturesTextSecondary)
+                    .frame(width: DesignTokens.layout.detailActionButtonSize, height: DesignTokens.layout.detailActionButtonSize)
+                    .background(Color.white)
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(DesignTokens.colors.cardStroke, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
         }
     }
 

@@ -2,9 +2,11 @@ import AVFoundation
 import UIKit
 
 /// Manages AVCaptureSession for full-screen camera preview and photo capture.
+/// Uses a dedicated queue for session start/stop to avoid blocking the main thread.
 final class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
     var onImagePicked: ((UIImage) -> Void)?
 
+    private let sessionQueue = DispatchQueue(label: "camera.session")
     private var lastShutterTrigger = 0
     private var captureSession: AVCaptureSession?
     private var photoOutput: AVCapturePhotoOutput?
@@ -13,7 +15,9 @@ final class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegat
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
-        setupCamera()
+        sessionQueue.async { [weak self] in
+            self?.setupCamera()
+        }
     }
 
     override func viewDidLayoutSubviews() {
@@ -23,12 +27,16 @@ final class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegat
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        captureSession?.startRunning()
+        sessionQueue.async { [weak self] in
+            self?.captureSession?.startRunning()
+        }
     }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        captureSession?.stopRunning()
+        sessionQueue.async { [weak self] in
+            self?.captureSession?.stopRunning()
+        }
     }
 
     func handleShutterTrigger(_ trigger: Int) {
@@ -57,22 +65,27 @@ final class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegat
         let output = AVCapturePhotoOutput()
         if session.canAddOutput(output) {
             session.addOutput(output)
-            photoOutput = output
         }
 
         captureSession = session
+        photoOutput = output
 
-        let layer = AVCaptureVideoPreviewLayer(session: session)
-        layer.videoGravity = .resizeAspectFill
-        layer.frame = view.bounds
-        view.layer.addSublayer(layer)
-        previewLayer = layer
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let session = self.captureSession else { return }
+            let layer = AVCaptureVideoPreviewLayer(session: session)
+            layer.videoGravity = .resizeAspectFill
+            layer.frame = self.view.bounds
+            self.view.layer.addSublayer(layer)
+            self.previewLayer = layer
+        }
     }
 
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
         guard error == nil,
               let data = photo.fileDataRepresentation(),
               let image = UIImage(data: data) else { return }
-        onImagePicked?(image)
+        DispatchQueue.main.async { [weak self] in
+            self?.onImagePicked?(image)
+        }
     }
 }

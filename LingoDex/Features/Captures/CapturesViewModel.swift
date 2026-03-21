@@ -44,6 +44,7 @@ enum CaptureFlowPhase: Equatable {
     }
 
     /// Processes captured image: recognition → background removal → translation. Sets pending state for review.
+    /// Heavy work runs in Task.detached to avoid blocking the main thread.
     func processCapturedImage(_ image: UIImage) async {
         captureFlowPhase = .processing
         isProcessingCapture = true
@@ -54,33 +55,43 @@ enum CaptureFlowPhase: Equatable {
             isProcessingCapture = false
         }
 
-        do {
-            let recognized = try await deps.objectRecognition.recognizeObject(from: image)
-            let nativeLanguage = Self.languageFromSystem()
-            let nativeTranslation = (try? await deps.translation.translate(recognized.englishWord, to: nativeLanguage)) ?? recognized.englishWord
+        let objectRecognition = deps.objectRecognition
+        let translation = deps.translation
+        let backgroundRemoval = deps.backgroundRemoval
+        let nativeLang = Self.languageFromSystem()
 
-            var extractedImage = image
-            if let removed = try? await deps.backgroundRemoval.removeBackground(from: image) {
-                extractedImage = removed
+        let result: (WordEntry, UIImage)? = await Task.detached(priority: .userInitiated) {
+            do {
+                let recognized = try await objectRecognition.recognizeObject(from: image)
+                let nativeTranslation = (try? await translation.translate(recognized.englishWord, to: nativeLang)) ?? recognized.englishWord
+
+                var extractedImage = image
+                if let removed = try? await backgroundRemoval.removeBackground(from: image) {
+                    extractedImage = removed
+                }
+
+                let wordId = UUID()
+                let imageFileName = "\(wordId).png"
+                let word = WordEntry(
+                    id: wordId,
+                    imageFileName: imageFileName,
+                    recognizedEnglish: recognized.englishWord,
+                    learnWord: recognized.englishWord,
+                    nativeWord: nativeTranslation,
+                    createdAt: Date(),
+                    srs: SRSCardState()
+                )
+                return (word, extractedImage)
+            } catch {
+                return nil
             }
+        }.value
 
-            let wordId = UUID()
-            let imageFileName = "\(wordId).png"
-
-            let word = WordEntry(
-                id: wordId,
-                imageFileName: imageFileName,
-                recognizedEnglish: recognized.englishWord,
-                learnWord: recognized.englishWord,
-                nativeWord: nativeTranslation,
-                createdAt: Date(),
-                srs: SRSCardState()
-            )
-
+        if let (word, extractedImage) = result {
             pendingWord = word
             pendingExtractedImage = extractedImage
             captureFlowPhase = .result
-        } catch {
+        } else {
             captureFlowPhase = .camera
         }
     }

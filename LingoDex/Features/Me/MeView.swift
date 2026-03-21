@@ -537,7 +537,7 @@ private extension MeView {
                 .font(.system(size: 15, weight: .regular, design: .monospaced))
                 .foregroundStyle(DesignTokens.colors.capturesTextSecondary)
             Text(value)
-                .font(.system(size: 36, weight: .semibold, design: .monospaced))
+                .font(.system(size: 20, weight: .semibold, design: .monospaced))
                 .foregroundStyle(DesignTokens.colors.capturesTextPrimary)
         }
     }
@@ -549,29 +549,7 @@ private extension MeView {
     }
 
     func modalButtons(onSave: @escaping () -> Void, onCancel: @escaping () -> Void) -> some View {
-        VStack(spacing: 10) {
-            Button(action: onSave) {
-                Text("Save")
-                    .font(.system(size: 20, weight: .semibold, design: .rounded))
-                    .foregroundStyle(Color(hex: "#F3EDBE"))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 58)
-                    .background(Color.black)
-                    .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Save profile changes")
-
-            Button(action: onCancel) {
-                Text("Cancel")
-                    .font(.system(size: 18, weight: .semibold, design: .rounded))
-                    .foregroundStyle(DesignTokens.colors.capturesTextSecondary)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 44)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.top, 4)
+        SaveCancelButtons(onSave: onSave, onCancel: onCancel)
     }
 }
 

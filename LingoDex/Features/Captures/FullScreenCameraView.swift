@@ -10,6 +10,7 @@ struct FullScreenCameraView: View {
     let onPhotoLibrary: () -> Void
 
     @State private var shutterTrigger = 0
+    @State private var impactLight = UIImpactFeedbackGenerator(style: .light)
 
     var body: some View {
         ZStack {
@@ -35,17 +36,18 @@ struct FullScreenCameraView: View {
 
                 // Bottom bar: X, shutter, gallery
                 HStack {
-                    cameraButton(icon: "xmark", action: onCancel)
+                    cameraButton(icon: "xmark", action: onCancel, impact: impactLight)
                     Spacer()
                     ShutterButton(action: { shutterTrigger += 1 })
                     Spacer()
-                    cameraButton(icon: "photo.on.rectangle.angled", action: onPhotoLibrary)
+                    cameraButton(icon: "photo.on.rectangle.angled", action: onPhotoLibrary, impact: impactLight)
                 }
                 .padding(.horizontal, 32)
                 .padding(.bottom, 44)
             }
         }
         .ignoresSafeArea(edges: .bottom)
+        .onAppear { impactLight.prepare() }
     }
 
     private var dateString: String {
@@ -55,9 +57,9 @@ struct FullScreenCameraView: View {
         return formatter.string(from: Date())
     }
 
-    private func cameraButton(icon: String, action: @escaping () -> Void) -> some View {
+    private func cameraButton(icon: String, action: @escaping () -> Void, impact: UIImpactFeedbackGenerator) -> some View {
         Button(action: {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            impact.impactOccurred()
             action()
         }) {
             Image(systemName: icon)
@@ -151,6 +153,7 @@ private struct CornerBracket: View {
 
 private struct ShutterButton: View {
     let action: () -> Void
+    @State private var impactMedium = UIImpactFeedbackGenerator(style: .medium)
 
     var body: some View {
         Button(action: action) {
@@ -170,8 +173,9 @@ private struct ShutterButton: View {
         }
         .buttonStyle(.plain)
         .simultaneousGesture(TapGesture().onEnded { _ in
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            impactMedium.impactOccurred()
         })
+        .onAppear { impactMedium.prepare() }
     }
 }
 

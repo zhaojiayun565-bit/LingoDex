@@ -163,11 +163,7 @@ private struct PracticeCard: View {
                 .stroke(DesignTokens.colors.cardStroke, lineWidth: 1)
         )
         .task(id: word.imageFileName) {
-            do {
-                uiImage = try await deps.localStore.loadImage(fileName: word.imageFileName)
-            } catch {
-                uiImage = nil
-            }
+            uiImage = await deps.imageLoader.loadThumbnail(fileName: word.imageFileName, maxSize: 200)
         }
     }
 

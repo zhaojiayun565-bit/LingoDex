@@ -81,6 +81,9 @@ struct CaptureFlowView: View {
                     viewModel.dismissPending()
                     isPresented = false
                 },
+                onRetry: {
+                    viewModel.dismissPending()
+                },
                 onTryPronunciation: { verificationTarget = $0 }
             )
         }
