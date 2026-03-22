@@ -1,9 +1,22 @@
 import Foundation
 import SwiftData
+import Supabase
 
 /// Services are lazy so only those needed for the first frame are created at launch.
 final class Dependencies {
     var modelContext: ModelContext { LingoDexApp.modelContainer.mainContext }
+
+    lazy var supabase: SupabaseClient = {
+        let urlString = (Bundle.main.object(forInfoDictionaryKey: "SUPABASE_URL") as? String)
+            ?? ProcessInfo.processInfo.environment["SUPABASE_URL"]
+            ?? ""
+        let key = (Bundle.main.object(forInfoDictionaryKey: "SUPABASE_ANON_KEY") as? String)
+            ?? ProcessInfo.processInfo.environment["SUPABASE_ANON_KEY"]
+            ?? ""
+        let url = URL(string: urlString) ?? URL(string: "https://placeholder.supabase.co")!
+        return SupabaseClient(supabaseURL: url, supabaseKey: key)
+    }()
+
     lazy var captureStore: SwiftDataCaptureStore = SwiftDataCaptureStore(
         modelContext: modelContext,
         imageStore: localStore
@@ -13,14 +26,19 @@ final class Dependencies {
     lazy var tts: any TTSClient = KokoroTTSClient(avSpeechFallback: AppleTTSClient())
     lazy var speechVerification: any SpeechVerificationClient = MockSpeechVerificationClient()
     lazy var storyGenerator: any StoryGeneratorClient = LocalStoryGeneratorClient()
-    lazy var auth: any AuthClient = SupabaseAuthClient()
+    lazy var auth: any AuthClient = SupabaseAuthClient(supabase: supabase)
     lazy var localStore: LocalLingoDexStore = LocalLingoDexStore()
     lazy var backgroundRemoval: BackgroundRemovalService = BackgroundRemovalService()
     lazy var subjectLift: SubjectLiftService = SubjectLiftService()
     lazy var networkMonitor: NetworkMonitor = NetworkMonitor()
     lazy var geminiRecognition: GeminiRecognitionClient = {
-        let url = URL(string: Bundle.main.object(forInfoDictionaryKey: "SUPABASE_URL") as? String ?? "") ?? URL(string: "https://placeholder.supabase.co")!
-        let key = Bundle.main.object(forInfoDictionaryKey: "SUPABASE_ANON_KEY") as? String ?? ""
+        let urlString = (Bundle.main.object(forInfoDictionaryKey: "SUPABASE_URL") as? String)
+            ?? ProcessInfo.processInfo.environment["SUPABASE_URL"]
+            ?? ""
+        let key = (Bundle.main.object(forInfoDictionaryKey: "SUPABASE_ANON_KEY") as? String)
+            ?? ProcessInfo.processInfo.environment["SUPABASE_ANON_KEY"]
+            ?? ""
+        let url = URL(string: urlString) ?? URL(string: "https://placeholder.supabase.co")!
         return GeminiRecognitionClient(supabaseURL: url, anonKey: key) { [weak self] in
             self?.auth.accessToken
         }

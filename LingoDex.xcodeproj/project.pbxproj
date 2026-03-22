@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		E08551D22F6F2A1F0092B500 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = E01BD5B12F6CD71100048DCC /* FluidAudio */; };
+		E08551D42F6F2A2F0092B500 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = E01BD5B32F6CD71100048DCC /* Supabase */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +29,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				E08551D22F6F2A1F0092B500 /* FluidAudio in Frameworks */,
+				E08551D42F6F2A2F0092B500 /* Supabase in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -71,6 +73,7 @@
 			name = LingoDex;
 			packageProductDependencies = (
 				E01BD5B12F6CD71100048DCC /* FluidAudio */,
+				E01BD5B32F6CD71100048DCC /* Supabase */,
 			);
 			productName = LingoDex;
 			productReference = E01BD59E2F6CD71000048DCC /* LingoDex.app */;
@@ -102,6 +105,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				E01BD5B02F6CD71100048DCC /* XCRemoteSwiftPackageReference "FluidAudio" */,
+				E01BD5B22F6CD71100048DCC /* XCRemoteSwiftPackageReference "supabase-swift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = E01BD59F2F6CD71000048DCC /* Products */;
@@ -266,12 +270,11 @@
 				DEVELOPMENT_TEAM = 2L8UB6KF64;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "We need camera access to capture objects for language learning.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We need microphone access to record pronunciation for verification.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We need photo library access to choose photos for learning.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "We need speech recognition access to verify your pronunciation.";
-				INFOPLIST_KEY_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJja3NhZ2tvZWRtd3J2ZXVtbW56Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwMzAwMzUsImV4cCI6MjA4OTYwNjAzNX0.G8Bq_bnPAyP5yH8hqVNUo5mlhw2hHBS1Bt3q-tYHC5Y";
-				INFOPLIST_KEY_SUPABASE_URL = "https://rcksagkoedmwrveummnz.supabase.co";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -307,12 +310,11 @@
 				DEVELOPMENT_TEAM = 2L8UB6KF64;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "We need camera access to capture objects for language learning.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We need microphone access to record pronunciation for verification.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We need photo library access to choose photos for learning.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "We need speech recognition access to verify your pronunciation.";
-				INFOPLIST_KEY_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJja3NhZ2tvZWRtd3J2ZXVtbW56Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwMzAwMzUsImV4cCI6MjA4OTYwNjAzNX0.G8Bq_bnPAyP5yH8hqVNUo5mlhw2hHBS1Bt3q-tYHC5Y";
-				INFOPLIST_KEY_SUPABASE_URL = "https://rcksagkoedmwrveummnz.supabase.co";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -369,6 +371,14 @@
 				minimumVersion = 0.7.7;
 			};
 		};
+		E01BD5B22F6CD71100048DCC /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -376,6 +386,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = E01BD5B02F6CD71100048DCC /* XCRemoteSwiftPackageReference "FluidAudio" */;
 			productName = FluidAudio;
+		};
+		E01BD5B32F6CD71100048DCC /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E01BD5B22F6CD71100048DCC /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
