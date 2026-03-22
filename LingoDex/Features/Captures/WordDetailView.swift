@@ -15,6 +15,10 @@ struct WordDetailView: View {
         viewModel.sessions.flatMap(\.words).first { $0.id == initialWord.id } ?? initialWord
     }
 
+    private var isPendingRecognition: Bool {
+        displayedWord.learnWord == "Loading…" || displayedWord.learnWord == "Loading..."
+    }
+
     @State private var image: UIImage?
 
     @State private var flipDegrees: Double = 90
@@ -193,7 +197,7 @@ struct WordDetailView: View {
                     .animation(isSpeaking ? .easeInOut(duration: 0.5).repeatForever(autoreverses: true) : .easeOut(duration: 0.25), value: isSpeakerPulsing)
             }
             .buttonStyle(.plain)
-            .disabled(isSpeaking)
+            .disabled(isSpeaking || isPendingRecognition)
 
             // Mic — test pronunciation
             micButton
@@ -249,6 +253,7 @@ struct WordDetailView: View {
             )
         }
         .buttonStyle(.plain)
+        .disabled(isPendingRecognition)
     }
 
     private var editSheet: some View {

@@ -1,0 +1,11 @@
+# Supabase function secrets (never commit)
+supabase/functions/.env
+supabase/functions/.env.*
+.env
+.env.*
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xcworkspace/xcuserdata/

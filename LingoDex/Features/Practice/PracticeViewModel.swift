@@ -25,7 +25,7 @@ import Observation
 
     func load() async {
         do {
-            sessions = try await deps.localStore.loadSessions()
+            sessions = try deps.captureStore.loadSessions()
             lastLoadedAt = Date()
         } catch {
             sessions = []
@@ -36,21 +36,21 @@ import Observation
     func rate(wordId: UUID, rating: SRSRating) {
         let now = Date()
 
-        var didUpdate = false
+        var updatedSrs: SRSCardState?
         for sessionIndex in sessions.indices {
             guard let wordIndex = sessions[sessionIndex].words.firstIndex(where: { $0.id == wordId }) else { continue }
             let current = sessions[sessionIndex].words[wordIndex]
             let updated = current.withUpdatedSRS(rating: rating, now: now)
             sessions[sessionIndex].words[wordIndex] = updated
-            didUpdate = true
+            updatedSrs = updated.srs
             break
         }
 
-        guard didUpdate else { return }
+        guard let srs = updatedSrs else { return }
 
         Task {
             do {
-                try await deps.localStore.saveSessions(sessions)
+                try deps.captureStore.updateWordSRS(id: wordId, srs: srs)
             } catch {
                 // For MVP: ignore persistence failures.
             }

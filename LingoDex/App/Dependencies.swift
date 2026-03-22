@@ -1,7 +1,13 @@
 import Foundation
+import SwiftData
 
 /// Services are lazy so only those needed for the first frame are created at launch.
 final class Dependencies {
+    var modelContext: ModelContext { LingoDexApp.modelContainer.mainContext }
+    lazy var captureStore: SwiftDataCaptureStore = SwiftDataCaptureStore(
+        modelContext: modelContext,
+        imageStore: localStore
+    )
     lazy var objectRecognition: any ObjectRecognitionClient = AppleVisionObjectRecognitionClient()
     lazy var translation: any TranslationClient = AppleTranslationClient()
     lazy var tts: any TTSClient = KokoroTTSClient(avSpeechFallback: AppleTTSClient())
@@ -10,6 +16,21 @@ final class Dependencies {
     lazy var auth: any AuthClient = SupabaseAuthClient()
     lazy var localStore: LocalLingoDexStore = LocalLingoDexStore()
     lazy var backgroundRemoval: BackgroundRemovalService = BackgroundRemovalService()
+    lazy var subjectLift: SubjectLiftService = SubjectLiftService()
+    lazy var networkMonitor: NetworkMonitor = NetworkMonitor()
+    lazy var geminiRecognition: GeminiRecognitionClient = {
+        let url = URL(string: Bundle.main.object(forInfoDictionaryKey: "SUPABASE_URL") as? String ?? "") ?? URL(string: "https://placeholder.supabase.co")!
+        let key = Bundle.main.object(forInfoDictionaryKey: "SUPABASE_ANON_KEY") as? String ?? ""
+        return GeminiRecognitionClient(supabaseURL: url, anonKey: key) { [weak self] in
+            self?.auth.accessToken
+        }
+    }()
+    lazy var recognitionSync: RecognitionSyncService = RecognitionSyncService(
+        captureStore: captureStore,
+        imageStore: localStore,
+        geminiClient: geminiRecognition,
+        networkMonitor: networkMonitor
+    )
     lazy var imageLoader: ImageLoadingService = {
         let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
             .appendingPathComponent("lingodex_images", isDirectory: true)

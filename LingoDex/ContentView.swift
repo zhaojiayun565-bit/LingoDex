@@ -16,6 +16,7 @@ struct ContentView: View {
 }
 
 private struct MainTabContainer: View {
+    @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel = AppViewModel()
     private let deps = Dependencies.live
     @State private var capturesViewModel = CapturesViewModel(deps: Dependencies.live)
@@ -91,9 +92,15 @@ private struct MainTabContainer: View {
                     capturesViewModel.pendingExtractedImage = nil
                     isShowingPhotoPicker = false
                     isShowingCaptureFlow = true
-                    Task { await capturesViewModel.processCapturedImage(image) }
+                    let info = CapturedImageInfo(image: image, previewSize: nil)
+                    Task { await capturesViewModel.processCapturedImage(info) }
                 }
             )
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                Task { await capturesViewModel.load(); await deps.recognitionSync.syncIfNeeded() }
+            }
         }
         .task {
             if viewModel.authUser == nil {

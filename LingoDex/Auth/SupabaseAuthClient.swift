@@ -3,6 +3,7 @@ import Observation
 
 @Observable final class SupabaseAuthClient: AuthClient, @unchecked Sendable {
     private(set) var currentUser: AuthUser? = nil
+    var accessToken: String? { UserDefaults.standard.string(forKey: accessTokenKey) }
 
     // MVP persistence: we only need enough to keep the UI gated behind auth.
     private let accessTokenKey = "lingodex_supabase_access_token"

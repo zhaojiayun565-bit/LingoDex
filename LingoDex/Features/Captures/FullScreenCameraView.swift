@@ -5,7 +5,7 @@ import UIKit
 /// Full-screen custom camera with viewfinder, X, shutter, and photo library.
 /// Uses AVCaptureSession for precise layout control.
 struct FullScreenCameraView: View {
-    let onImagePicked: (UIImage) -> Void
+    let onImagePicked: (CapturedImageInfo) -> Void
     let onCancel: () -> Void
     let onPhotoLibrary: () -> Void
 
@@ -194,7 +194,7 @@ private struct ShutterButton: View {
 }
 
 private struct CameraPreviewView: UIViewControllerRepresentable {
-    let onImagePicked: (UIImage) -> Void
+    let onImagePicked: (CapturedImageInfo) -> Void
     let shutterTrigger: Int
 
     func makeUIViewController(context: Context) -> CameraViewController {

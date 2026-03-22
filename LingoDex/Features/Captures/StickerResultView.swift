@@ -100,20 +100,19 @@ struct StickerResultView: View {
                 )
                 .frame(width: 290, height: 349)
 
-            Image(uiImage: extractedImage)
-                .resizable()
-                .scaledToFit()
+            MagicLiftView(image: extractedImage)
                 .frame(maxWidth: 260, maxHeight: 280)
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .padding(24)
         }
     }
 
+    /// Learning language (top), native language (below). Shows "Loading…" / "Pending" when recognition queued.
     private var wordLabels: some View {
         VStack(spacing: 16) {
             Text(word.learnWord)
                 .font(CaptureTypography.detailWordTitle())
-                .foregroundStyle(DesignTokens.colors.capturesTextPrimary)
+                .foregroundStyle(isPending ? DesignTokens.colors.capturesTextSecondary : DesignTokens.colors.capturesTextPrimary)
                 .multilineTextAlignment(.center)
 
             Text(word.nativeWord)
@@ -121,6 +120,10 @@ struct StickerResultView: View {
                 .foregroundStyle(DesignTokens.colors.capturesTextSecondary)
                 .multilineTextAlignment(.center)
         }
+    }
+
+    private var isPending: Bool {
+        word.learnWord == "Loading…" || word.learnWord == "Loading..."
     }
 
     private var actionButtons: some View {
@@ -140,7 +143,7 @@ struct StickerResultView: View {
                     .animation(isSpeaking ? .easeInOut(duration: 0.6).repeatForever(autoreverses: true) : .easeOut(duration: 0.25), value: isSpeakerPulsing)
             }
             .buttonStyle(.plain)
-            .disabled(isSpeaking)
+            .disabled(isSpeaking || isPending)
 
             Button {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -155,6 +158,7 @@ struct StickerResultView: View {
                     .overlay(Circle().stroke(DesignTokens.colors.cardStroke, lineWidth: 1))
             }
             .buttonStyle(.plain)
+            .disabled(isPending)
         }
     }
 

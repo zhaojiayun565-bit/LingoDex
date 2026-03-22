@@ -4,7 +4,7 @@ import UIKit
 /// Manages AVCaptureSession for full-screen camera preview and photo capture.
 /// Uses a dedicated queue for session start/stop to avoid blocking the main thread.
 final class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
-    var onImagePicked: ((UIImage) -> Void)?
+    var onImagePicked: ((CapturedImageInfo) -> Void)?
 
     private let sessionQueue = DispatchQueue(label: "camera.session")
     private var lastShutterTrigger = 0
@@ -84,8 +84,10 @@ final class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegat
         guard error == nil,
               let data = photo.fileDataRepresentation(),
               let image = UIImage(data: data) else { return }
+        let previewSize = previewLayer?.bounds.size
+        let info = CapturedImageInfo(image: image, previewSize: previewSize)
         DispatchQueue.main.async { [weak self] in
-            self?.onImagePicked?(image)
+            self?.onImagePicked?(info)
         }
     }
 }

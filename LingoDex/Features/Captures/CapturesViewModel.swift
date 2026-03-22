@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import UIKit
 import Observation
 
@@ -28,89 +29,147 @@ enum CaptureFlowPhase: Equatable {
     private let storyMetaLastWordCountKey = "lingodex_last_story_word_count"
     private let storiesKey = "lingodex_saved_stories"
 
+    /// Metadata for pending recognition (offline queue).
+    private var pendingFullImage: UIImage?
+    private var pendingNormalizedBBox: String?
+    private var pendingLearningLang: String = "english"
+    private var pendingNativeLang: String = "english"
+
     init(deps: Dependencies) {
         self.deps = deps
+        SwiftDataMigration.runIfNeeded(modelContext: deps.modelContext)
         Task {
             await load()
+            await deps.recognitionSync.syncIfNeeded()
         }
     }
 
     func load() async {
         do {
-            sessions = try await deps.localStore.loadSessions()
+            sessions = try deps.captureStore.loadSessions()
         } catch {
             sessions = []
         }
     }
 
-    /// Processes captured image: recognition → background removal → translation. Sets pending state for review.
-    /// Heavy work runs in Task.detached to avoid blocking the main thread.
-    func processCapturedImage(_ image: UIImage) async {
+    /// Processes captured image: subject lift → Gemini recognition (or queue if offline). Shows result immediately.
+    func processCapturedImage(_ info: CapturedImageInfo) async {
         captureFlowPhase = .processing
         isProcessingCapture = true
         pendingWord = nil
         pendingExtractedImage = nil
+        pendingFullImage = nil
+        pendingNormalizedBBox = nil
 
-        defer {
-            isProcessingCapture = false
+        defer { isProcessingCapture = false }
+
+        let image = info.image
+        let normalizedBBox = info.normalizedBBoxString
+        let learningLang = Language.currentLearning.rawValue
+        let nativeLang = Self.languageFromSystem().rawValue
+
+        // 1. Subject lift (sticker) — always
+        let sticker: UIImage
+        if let s = try? await deps.subjectLift.extractSticker(from: image) {
+            sticker = s
+        } else {
+            sticker = image
         }
 
-        let objectRecognition = deps.objectRecognition
-        let translation = deps.translation
-        let backgroundRemoval = deps.backgroundRemoval
-        let nativeLang = Self.languageFromSystem()
+        let wordId = UUID()
+        let imageFileName = "\(wordId).png"
 
-        let result: (WordEntry, UIImage)? = await Task.detached(priority: .userInitiated) {
+        // 2. Recognition: Gemini if online, else queue
+        if deps.networkMonitor.isReachable {
             do {
-                let recognized = try await objectRecognition.recognizeObject(from: image)
-                let nativeTranslation = (try? await translation.translate(recognized.englishWord, to: nativeLang)) ?? recognized.englishWord
-
-                var extractedImage = image
-                if let removed = try? await backgroundRemoval.removeBackground(from: image) {
-                    extractedImage = removed
-                }
-
-                let wordId = UUID()
-                let imageFileName = "\(wordId).png"
+                let result = try await deps.geminiRecognition.recognize(
+                    image: image,
+                    boundingBox: normalizedBBox,
+                    nativeLanguage: nativeLang,
+                    learningLanguage: learningLang
+                )
+                let learnWord = result.targetTranslation
+                let nativeWord = result.objectName ?? result.targetTranslation
                 let word = WordEntry(
                     id: wordId,
                     imageFileName: imageFileName,
-                    recognizedEnglish: recognized.englishWord,
-                    learnWord: recognized.englishWord,
-                    nativeWord: nativeTranslation,
+                    recognizedEnglish: result.targetTranslation,
+                    learnWord: learnWord,
+                    nativeWord: nativeWord,
                     createdAt: Date(),
                     srs: SRSCardState()
                 )
-                return (word, extractedImage)
+                pendingWord = word
+                pendingExtractedImage = sticker
+                pendingFullImage = nil
             } catch {
-                return nil
+                // Fallback: show pending so user can retry or save for sync.
+                let word = WordEntry(
+                    id: wordId,
+                    imageFileName: imageFileName,
+                    recognizedEnglish: "Loading…",
+                    learnWord: "Loading…",
+                    nativeWord: "Pending",
+                    createdAt: Date(),
+                    srs: SRSCardState()
+                )
+                pendingWord = word
+                pendingExtractedImage = sticker
+                pendingFullImage = image
+                pendingNormalizedBBox = normalizedBBox
+                pendingLearningLang = learningLang
+                pendingNativeLang = nativeLang
             }
-        }.value
-
-        if let (word, extractedImage) = result {
-            pendingWord = word
-            pendingExtractedImage = extractedImage
-            captureFlowPhase = .result
         } else {
-            captureFlowPhase = .camera
+            let word = WordEntry(
+                id: wordId,
+                imageFileName: imageFileName,
+                recognizedEnglish: "Loading…",
+                learnWord: "Loading…",
+                nativeWord: "Pending",
+                createdAt: Date(),
+                srs: SRSCardState()
+            )
+            pendingWord = word
+            pendingExtractedImage = sticker
+            pendingFullImage = image
+            pendingNormalizedBBox = normalizedBBox
+            pendingLearningLang = learningLang
+            pendingNativeLang = nativeLang
         }
+
+        captureFlowPhase = .result
     }
 
-    /// Persists pending word and extracted image, clears pending state.
+    /// Persists pending word and sticker. Uses pending entity when offline (queued for sync).
     func savePendingWord() async {
-        guard let word = pendingWord, let image = pendingExtractedImage else { return }
+        guard let word = pendingWord, let sticker = pendingExtractedImage else { return }
 
         do {
-            try await deps.localStore.saveImagePng(image, fileName: word.imageFileName)
+            let isPending = pendingFullImage != nil
+            let entity = CapturedWordEntity(
+                id: word.id,
+                createdAt: word.createdAt,
+                imageFileName: word.imageFileName,
+                learnWord: word.learnWord,
+                nativeWord: word.nativeWord,
+                recognizedEnglish: word.recognizedEnglish,
+                srsRatingRaw: word.srs.rating.rawValue,
+                srsNextDueDate: word.srs.nextDueDate,
+                srsLastReviewedAt: word.srs.lastReviewedAt,
+                recognitionStatusRaw: isPending ? RecognitionStatus.pending.rawValue : RecognitionStatus.ready.rawValue,
+                learningLanguageRaw: pendingLearningLang,
+                nativeLanguageRaw: pendingNativeLang,
+                sourceImageFileName: isPending ? "\(word.id)_capture.jpg" : nil,
+                normalizedBBox: isPending ? pendingNormalizedBBox : nil
+            )
 
-            let now = Date()
-            if let existingIndex = sessions.firstIndex(where: { Calendar.current.isDate($0.date, inSameDayAs: now) }) {
-                sessions[existingIndex].words.append(word)
+            if isPending, let fullImage = pendingFullImage {
+                try await deps.captureStore.insertPendingWord(entity, stickerImage: sticker, fullCaptureForRetry: fullImage)
             } else {
-                sessions.insert(CaptureSession(date: now, words: [word]), at: 0)
+                try await deps.captureStore.insertWord(entity, stickerImage: sticker)
             }
-
-            try await deps.localStore.saveSessions(sessions)
+            await load()
             prepareStoryIfNeeded()
         } catch {
             // Fail silently for MVP.
@@ -118,6 +177,8 @@ enum CaptureFlowPhase: Equatable {
 
         pendingWord = nil
         pendingExtractedImage = nil
+        pendingFullImage = nil
+        pendingNormalizedBBox = nil
         captureFlowPhase = .camera
     }
 
@@ -125,43 +186,33 @@ enum CaptureFlowPhase: Equatable {
     func dismissPending() {
         pendingWord = nil
         pendingExtractedImage = nil
+        pendingFullImage = nil
+        pendingNormalizedBBox = nil
         captureFlowPhase = .camera
     }
 
     /// Deletes a word from sessions and its image file.
     func deleteWord(_ word: WordEntry) async {
-        for i in sessions.indices {
-            if let j = sessions[i].words.firstIndex(where: { $0.id == word.id }) {
-                sessions[i].words.remove(at: j)
-                if sessions[i].words.isEmpty {
-                    sessions.remove(at: i)
-                }
-                try? await deps.localStore.deleteImage(fileName: word.imageFileName)
-                try? await deps.localStore.saveSessions(sessions)
-                break
-            }
+        do {
+            try await deps.captureStore.deleteWord(id: word.id)
+            await load()
+        } catch {
+            // Fail silently for MVP.
         }
     }
 
     /// Updates a word's learn and native labels.
     func updateWord(_ word: WordEntry, learnWord: String, nativeWord: String) async {
         guard !learnWord.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        for i in sessions.indices {
-            if let j = sessions[i].words.firstIndex(where: { $0.id == word.id }) {
-                var updated = sessions[i].words[j]
-                updated = WordEntry(
-                    id: updated.id,
-                    imageFileName: updated.imageFileName,
-                    recognizedEnglish: updated.recognizedEnglish,
-                    learnWord: learnWord.trimmingCharacters(in: .whitespaces),
-                    nativeWord: nativeWord.trimmingCharacters(in: .whitespaces),
-                    createdAt: updated.createdAt,
-                    srs: updated.srs
-                )
-                sessions[i].words[j] = updated
-                try? await deps.localStore.saveSessions(sessions)
-                break
-            }
+        do {
+            try deps.captureStore.updateWord(
+                id: word.id,
+                learnWord: learnWord.trimmingCharacters(in: .whitespaces),
+                nativeWord: nativeWord.trimmingCharacters(in: .whitespaces)
+            )
+            await load()
+        } catch {
+            // Fail silently for MVP.
         }
     }
 

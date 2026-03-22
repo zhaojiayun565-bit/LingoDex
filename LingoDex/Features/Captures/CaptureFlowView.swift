@@ -15,9 +15,9 @@ struct CaptureFlowView: View {
             switch viewModel.captureFlowPhase {
             case .camera:
                 FullScreenCameraView(
-                    onImagePicked: { image in
+                    onImagePicked: { info in
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        Task { await viewModel.processCapturedImage(image) }
+                        Task { await viewModel.processCapturedImage(info) }
                     },
                     onCancel: {
                         viewModel.dismissPending()
@@ -43,7 +43,8 @@ struct CaptureFlowView: View {
                 isPresented: $isShowingPhotoPicker,
                 onImagePicked: { image in
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    Task { await viewModel.processCapturedImage(image) }
+                    let info = CapturedImageInfo(image: image, previewSize: nil)
+                    Task { await viewModel.processCapturedImage(info) }
                 }
             )
         }

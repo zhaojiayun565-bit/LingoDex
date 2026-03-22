@@ -260,6 +260,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = LingoDex/LingoDex.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 2L8UB6KF64;
@@ -269,7 +270,7 @@
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We need microphone access to record pronunciation for verification.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We need photo library access to choose photos for learning.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "We need speech recognition access to verify your pronunciation.";
-				INFOPLIST_KEY_SUPABASE_ANON_KEY = "sb_publishable_vZV21wLUsUExR_J3g_zr7A_YFFLNvd-";
+				INFOPLIST_KEY_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJja3NhZ2tvZWRtd3J2ZXVtbW56Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwMzAwMzUsImV4cCI6MjA4OTYwNjAzNX0.G8Bq_bnPAyP5yH8hqVNUo5mlhw2hHBS1Bt3q-tYHC5Y";
 				INFOPLIST_KEY_SUPABASE_URL = "https://rcksagkoedmwrveummnz.supabase.co";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -300,6 +301,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = LingoDex/LingoDex.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 2L8UB6KF64;
@@ -309,7 +311,7 @@
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We need microphone access to record pronunciation for verification.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We need photo library access to choose photos for learning.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "We need speech recognition access to verify your pronunciation.";
-				INFOPLIST_KEY_SUPABASE_ANON_KEY = "sb_publishable_vZV21wLUsUExR_J3g_zr7A_YFFLNvd-";
+				INFOPLIST_KEY_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJja3NhZ2tvZWRtd3J2ZXVtbW56Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwMzAwMzUsImV4cCI6MjA4OTYwNjAzNX0.G8Bq_bnPAyP5yH8hqVNUo5mlhw2hHBS1Bt3q-tYHC5Y";
 				INFOPLIST_KEY_SUPABASE_URL = "https://rcksagkoedmwrveummnz.supabase.co";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;

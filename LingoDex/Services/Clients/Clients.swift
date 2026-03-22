@@ -31,6 +31,8 @@ struct AuthUser: Sendable, Equatable, Identifiable {
 
 protocol AuthClient: Sendable {
     var currentUser: AuthUser? { get }
+    /// Access token for Supabase Edge Function auth; nil if not signed in.
+    var accessToken: String? { get }
     func signInWithAppleIdToken(_ idToken: String, nonce: String?, fullName: String?) async throws -> AuthUser
     func signOut() async throws
 }
@@ -120,6 +122,7 @@ struct LocalStoryGeneratorClient: StoryGeneratorClient {
 
 @Observable final class LocalAuthClient: AuthClient {
     private(set) var currentUser: AuthUser? = nil
+    var accessToken: String? { nil }
 
     func signInWithAppleIdToken(_ idToken: String, nonce: String?, fullName: String?) async throws -> AuthUser {
         let display = fullName?.isEmpty == false ? (fullName ?? "") : "Learner"
