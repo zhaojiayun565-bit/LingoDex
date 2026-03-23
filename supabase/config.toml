@@ -36,4 +36,4 @@ refresh_token_reuse_interval = 10
 enable_signup = true
 
 [functions.recognize-object]
-verify_jwt = true
+verify_jwt = false

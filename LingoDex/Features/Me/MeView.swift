@@ -82,8 +82,7 @@ struct MeView: View {
                 }
             )
         }
-        .onChange(of: viewModel.user) { _, newValue in
-            appViewModel.authUser = newValue
+        .onChange(of: viewModel.user) { _, _ in
             draftName = viewModel.profileName
         }
         .task {
@@ -248,7 +247,7 @@ private extension MeView {
 
 #if DEBUG
             Button {
-                viewModel.user = AuthUser(id: "debug-test-user", displayName: "Tester")
+                viewModel.setDebugUser(AuthUser(id: "debug-test-user", displayName: "Tester"))
                 signInErrorMessage = nil
             } label: {
                 Text("Continue in Test Mode")
@@ -376,7 +375,6 @@ private extension MeView {
                         signInErrorMessage = nil
                     } catch {
                         signInErrorMessage = error.localizedDescription
-                        await MainActor.run { viewModel.user = nil }
                     }
                 }
             case .failure(let error):
@@ -395,7 +393,6 @@ private extension MeView {
                     #else
                     signInErrorMessage = error.localizedDescription
                     #endif
-                    viewModel.user = nil
                 }
             }
         }

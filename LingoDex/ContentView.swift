@@ -17,7 +17,7 @@ struct ContentView: View {
 
 private struct MainTabContainer: View {
     @Environment(\.scenePhase) private var scenePhase
-    @State private var viewModel = AppViewModel()
+    @State private var viewModel = AppViewModel(auth: Dependencies.live.auth)
     private let deps = Dependencies.live
     @State private var capturesViewModel = CapturesViewModel(deps: Dependencies.live)
     @State private var isShowingCaptureFlow = false
@@ -103,9 +103,6 @@ private struct MainTabContainer: View {
             }
         }
         .task {
-            if viewModel.authUser == nil {
-                viewModel.authUser = deps.auth.currentUser
-            }
             // Warm up Photos framework so the photo picker sheet opens faster
             try? await Task.sleep(for: .seconds(0.8))
             _ = PHPickerConfiguration(photoLibrary: .shared())

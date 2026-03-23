@@ -6,8 +6,19 @@ import UserNotifications
 @MainActor
 @Observable final class MeViewModel {
     private let deps: Dependencies
+    private let auth: SupabaseAuthClient
 
-    var user: AuthUser?
+#if DEBUG
+    private var debugUserOverride: AuthUser?
+#endif
+
+    /// Derived from auth client; stays in sync with session restore and sign-in/out.
+    var user: AuthUser? {
+#if DEBUG
+        if let debug = debugUserOverride { return debug }
+#endif
+        return auth.currentUser
+    }
     var nativeLanguage: Language = .english
     var learningLanguage: Language = .english
     var profileName: String = "Learner"
@@ -33,7 +44,7 @@ import UserNotifications
 
     init(deps: Dependencies) {
         self.deps = deps
-        self.user = deps.auth.currentUser
+        self.auth = deps.auth
         if let systemLang = Locale.current.languageCode {
             nativeLanguage = Self.languageFromSystemCode(systemLang)
         }
@@ -92,9 +103,6 @@ import UserNotifications
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         profileName = trimmed
-        if user != nil {
-            user?.displayName = trimmed
-        }
         UserDefaults.standard.set(trimmed, forKey: profileNameKey)
     }
 
@@ -113,6 +121,13 @@ import UserNotifications
             UIApplication.shared.open(url)
         }
     }
+
+#if DEBUG
+    /// Sets a test user for debug mode; bypasses real auth.
+    func setDebugUser(_ user: AuthUser?) {
+        debugUserOverride = user
+    }
+#endif
 
     /// Returns a flag emoji for a language card preview.
     func flag(for language: Language) -> String {
@@ -142,14 +157,16 @@ import UserNotifications
         )
         // #endregion
 
-        user = try await deps.auth.signInWithAppleIdToken(idToken, nonce: nonce, fullName: fullName)
+        _ = try await deps.auth.signInWithAppleIdToken(idToken, nonce: nonce, fullName: fullName)
         refreshProfileName()
     }
 
     func signOut() async {
         do {
             try await deps.auth.signOut()
-            user = nil
+#if DEBUG
+            debugUserOverride = nil
+#endif
             refreshProfileName()
         } catch {
             // No-op for MVP.
