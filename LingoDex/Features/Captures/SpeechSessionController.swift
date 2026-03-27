@@ -52,7 +52,6 @@ final class SpeechSessionController {
         guard !isListening else { return }
         logger.debug("start: locale=\(language.localeTag, privacy: .public)")
 
-        backend.stopByUser()
         clearDisplayState()
         isListening = true
 
@@ -131,6 +130,7 @@ private final class SpeechEngineBackend: @unchecked Sendable {
     }
 
     private let lock = NSLock()
+    private let audioQueue = DispatchQueue(label: "com.lingodex.SpeechEngine", qos: .userInitiated)
     private var speechRecognizer: SFSpeechRecognizer?
     private var audioEngine = AVAudioEngine()
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
@@ -150,7 +150,7 @@ private final class SpeechEngineBackend: @unchecked Sendable {
         onLevel: @escaping @Sendable (CGFloat) -> Void,
         onStarted: @escaping @Sendable () -> Void
     ) {
-        Task.detached { [weak self] in
+        audioQueue.async { [weak self] in
             guard let self else { return }
             self.teardown(origin: .userCancel)
             do {
@@ -231,7 +231,7 @@ private final class SpeechEngineBackend: @unchecked Sendable {
 
     /// Ends audio for final transcript processing safely.
     func stopAndFinalize() {
-        Task.detached { [weak self] in
+        audioQueue.async { [weak self] in
             guard let self else { return }
 
             self.lock.lock()
@@ -254,14 +254,14 @@ private final class SpeechEngineBackend: @unchecked Sendable {
 
     /// Stops backend from explicit user cancellation.
     func stopByUser() {
-        Task.detached { [weak self] in
+        audioQueue.async { [weak self] in
             self?.teardown(origin: .userCancel)
         }
     }
 
     /// Stops backend from recognition callback completion/error.
     func stopFromCallback() {
-        Task.detached { [weak self] in
+        audioQueue.async { [weak self] in
             self?.teardown(origin: .callbackResult)
         }
     }
@@ -316,14 +316,12 @@ private final class SpeechEngineBackend: @unchecked Sendable {
     }
 
     private func restorePlaybackAudioSession() {
-        Task.detached {
-            try? AVAudioSession.sharedInstance().setCategory(
-                .playback,
-                mode: .default,
-                options: [.defaultToSpeaker, .allowBluetooth]
-            )
-            try? AVAudioSession.sharedInstance().setActive(true)
-        }
+        try? AVAudioSession.sharedInstance().setCategory(
+            .playback,
+            mode: .default,
+            options: [.defaultToSpeaker, .allowBluetooth]
+        )
+        try? AVAudioSession.sharedInstance().setActive(true)
     }
 }
 
