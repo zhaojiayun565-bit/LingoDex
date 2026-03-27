@@ -9,7 +9,6 @@ import AVFoundation
 import SwiftData
 import SwiftUI
 import UIKit
-import PhotosUI
 
 struct ContentView: View {
     var body: some View {
@@ -29,7 +28,6 @@ private struct MainTabContainer: View {
     @State private var preWarmedCameraSession: (session: AVCaptureSession, photoOutput: AVCapturePhotoOutput?)?
     @State private var isShowingPhotoPicker = false
     @State private var isKeyboardVisible = false
-    @State private var migrationInProgress = false
     @State private var recognitionWarmUpTask: Task<Void, Never>?
     @State private var didRunStartupWarmups = false
     @State private var isActiveRefreshInFlight = false
@@ -47,13 +45,9 @@ private struct MainTabContainer: View {
             guard capturesViewModel == nil else { return }
             let viewModel = CapturesViewModel(deps: deps)
             capturesViewModel = viewModel
-            migrationInProgress = true
 
             Task(priority: .utility) {
                 await SwiftDataMigration.runIfNeeded(modelContainer: LingoDexApp.modelContainer)
-                await MainActor.run {
-                    migrationInProgress = false
-                }
                 await viewModel.loadFullCaptures()
             }
         }
@@ -104,17 +98,6 @@ private struct MainTabContainer: View {
         }
         .background(DesignTokens.colors.background.ignoresSafeArea())
         .tint(DesignTokens.colors.primary)
-        .overlay(alignment: .top) {
-            if migrationInProgress {
-                Text("Optimizing library...")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(DesignTokens.colors.capturesTextSecondary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .padding(.top, 8)
-            }
-        }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             isKeyboardVisible = true
         }
@@ -180,21 +163,6 @@ private struct MainTabContainer: View {
                 warmUpCapturesServices()
             }
         }
-        .task {
-            Task.detached(priority: .background) {
-                let deps = Dependencies.live
-                // T+0: Touch services so tabs are fast on first visit (off main thread).
-                _ = deps.imageLoader
-                _ = deps.captureStore
-
-                // Photos + TTS warm-up (off main thread).
-                try? await Task.sleep(for: .seconds(0.3))
-                _ = PHPickerConfiguration(photoLibrary: .shared())
-
-                try? await Task.sleep(for: .seconds(0.7))
-                try? await deps.tts.speak(" ", language: .currentLearning)
-            }
-        }
     }
 
     private var loadingState: some View {
@@ -214,13 +182,9 @@ private struct MainTabContainer: View {
     }
 
     private func scheduleRecognitionWarmUp() async {
-        let subjectLift = deps.subjectLift
-        let geminiRecognition = deps.geminiRecognition
-        try? await Task.sleep(for: .seconds(1.5))
+        try? await Task.sleep(for: .seconds(3.0))
         guard !Task.isCancelled else { return }
-        try? await subjectLift.warmUp()
-        guard !Task.isCancelled else { return }
-        await geminiRecognition.warmUp()
+        await deps.geminiRecognition.warmUp()
     }
 }
 

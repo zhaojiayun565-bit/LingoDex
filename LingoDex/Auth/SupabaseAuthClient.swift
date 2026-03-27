@@ -14,6 +14,10 @@ import Supabase
 
     init(supabase: SupabaseClient) {
         self.supabase = supabase
+        if let cachedId = UserDefaults.standard.string(forKey: userIdKey) {
+            let cachedName = UserDefaults.standard.string(forKey: displayNameKey) ?? "Learner"
+            self.currentUser = AuthUser(id: cachedId, displayName: cachedName)
+        }
         Task { await restoreSessionAndListenForChanges() }
     }
 
