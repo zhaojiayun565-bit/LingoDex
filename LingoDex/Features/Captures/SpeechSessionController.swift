@@ -82,14 +82,25 @@ final class SpeechSessionController {
         request.shouldReportPartialResults = shouldReportPartialResults
         recognitionRequest = request
 
+        let localRequest = request
+        let localLevelBuffer = self.waveformLevelBuffer
+
         let inputNode = audioEngine.inputNode
         let format = inputNode.outputFormat(forBus: 0)
         inputNode.removeTap(onBus: 0)
         logger.debug("start: install tap")
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-            guard let self else { return }
-            self.updateWaveform(with: buffer)
-            self.recognitionRequest?.append(buffer)
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+            if let channelData = buffer.floatChannelData?[0], buffer.frameLength > 0 {
+                let channelDataArray = UnsafeBufferPointer(start: channelData, count: Int(buffer.frameLength))
+                var sumSquares: Float = 0
+                for sample in channelDataArray {
+                    sumSquares += sample * sample
+                }
+                let rms = sqrt(sumSquares / Float(buffer.frameLength))
+                let level = min(max(rms * 12, 0.05), 1.0)
+                localLevelBuffer.set(level: CGFloat(level))
+            }
+            localRequest.append(buffer)
         }
 
         recognitionTask = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
@@ -202,18 +213,6 @@ final class SpeechSessionController {
                 waveform = next
             }
         }
-    }
-
-    private func updateWaveform(with buffer: AVAudioPCMBuffer) {
-        guard let channelData = buffer.floatChannelData?[0] else { return }
-        let channelDataArray = UnsafeBufferPointer(start: channelData, count: Int(buffer.frameLength))
-        var sumSquares: Float = 0
-        for sample in channelDataArray {
-            sumSquares += sample * sample
-        }
-        let rms = sqrt(sumSquares / Float(buffer.frameLength))
-        let level = min(max(rms * 12, 0.05), 1.0)
-        waveformLevelBuffer.set(level: CGFloat(level))
     }
 
     private func restorePlaybackAudioSession() {
