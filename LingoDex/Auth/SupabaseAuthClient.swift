@@ -93,10 +93,31 @@ import Supabase
         for await (event, session) in await supabase.auth.authStateChanges {
             switch event {
             case .initialSession, .signedIn, .tokenRefreshed:
-                if let session {
-                    let user = mapToAuthUser(session: session, fallbackFullName: nil)
+                let resolvedSession: Session? = {
+                    if event == .initialSession {
+                        return nil // resolved below via async check
+                    }
+                    return session
+                }()
+
+                if let resolvedSession {
+                    let user = mapToAuthUser(session: resolvedSession, fallbackFullName: nil)
                     currentUser = user
-                    storeSession(accessToken: session.accessToken, refreshToken: session.refreshToken, user: user)
+                    storeSession(accessToken: resolvedSession.accessToken, refreshToken: resolvedSession.refreshToken, user: user)
+                } else if event == .initialSession {
+                    // Local session is now emitted immediately; verify it isn't expired before treating as signed-in.
+                    do {
+                        let valid = try await supabase.auth.session
+                        let user = mapToAuthUser(session: valid, fallbackFullName: nil)
+                        currentUser = user
+                        storeSession(accessToken: valid.accessToken, refreshToken: valid.refreshToken, user: user)
+                    } catch {
+                        currentUser = nil
+                        UserDefaults.standard.removeObject(forKey: accessTokenKey)
+                        UserDefaults.standard.removeObject(forKey: refreshTokenKey)
+                        UserDefaults.standard.removeObject(forKey: userIdKey)
+                        UserDefaults.standard.removeObject(forKey: displayNameKey)
+                    }
                 }
             case .signedOut, .userUpdated:
                 if event == .signedOut {

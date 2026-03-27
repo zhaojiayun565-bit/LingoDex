@@ -15,7 +15,15 @@ final class Dependencies {
             ?? ProcessInfo.processInfo.environment["SUPABASE_ANON_KEY"]
             ?? ""
         let url = URL(string: urlString) ?? URL(string: "https://placeholder.supabase.co")!
-        return SupabaseClient(supabaseURL: url, supabaseKey: key)
+        return SupabaseClient(
+            supabaseURL: url,
+            supabaseKey: key,
+            options: SupabaseClientOptions(
+                auth: SupabaseClientOptions.AuthOptions(
+                    emitLocalSessionAsInitialSession: true
+                )
+            )
+        )
     }()
 
     lazy var captureStore: SwiftDataCaptureStore = SwiftDataCaptureStore(
