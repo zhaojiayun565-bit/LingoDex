@@ -3,32 +3,18 @@ import SwiftUI
 import Speech
 import AVFoundation
 import Observation
+import QuartzCore
 import os
 
 @MainActor
 @Observable
 final class SpeechSessionController {
-    enum StopOrigin: String {
-        case callbackResult
-        case userCancel
-    }
-
     var isListening = false
     var transcript: String = ""
     var errorMessage: String?
     var waveform: [CGFloat] = Array(repeating: 0.15, count: 24)
 
-    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
-    private var recognitionTask: SFSpeechRecognitionTask?
-    private var recordingTimeoutTask: Task<Void, Never>?
-    private var waveformRenderTask: Task<Void, Never>?
-    private var isShuttingDown = false
-    private var lastTranscriptCommitAt = Date.distantPast
-    private var onFinalTranscript: ((String) -> Void)?
-
-    private var speechRecognizer: SFSpeechRecognizer?
-    private var audioEngine = AVAudioEngine()
-    private let waveformLevelBuffer = WaveformLevelBuffer()
+    private let backend = SpeechEngineBackend()
     private let logger = Logger(subsystem: "com.lingodex.app", category: "SpeechSession")
 
     func clearDisplayState() {
@@ -66,29 +52,125 @@ final class SpeechSessionController {
         guard !isListening else { return }
         logger.debug("start: locale=\(language.localeTag, privacy: .public)")
 
-        teardown(origin: .userCancel)
+        backend.stopByUser()
         clearDisplayState()
-        lastTranscriptCommitAt = .distantPast
-        onFinalTranscript = onFinal
+        isListening = true
 
-        speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: language.localeTag))
-        guard let speechRecognizer else {
-            errorMessage = "Speech recognition is not available on this device."
-            logger.error("start: recognizer unavailable")
-            return
+        backend.start(
+            languageTag: language.localeTag,
+            shouldReportPartialResults: shouldReportPartialResults,
+            timeoutSeconds: timeoutSeconds,
+            onTranscript: { [weak self] text, isFinal in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.transcript = text
+                    if isFinal {
+                        self.isListening = false
+                        onFinal(text)
+                        self.backend.stopFromCallback()
+                    }
+                }
+            },
+            onError: { [weak self] message in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.logger.error("callback: error=\(message, privacy: .public)")
+                    self.errorMessage = message
+                    self.isListening = false
+                    self.backend.stopFromCallback()
+                }
+            },
+            onLevel: { [weak self] level in
+                Task { @MainActor in
+                    guard let self, self.isListening else { return }
+                    self.applySmoothedWaveformLevel(level)
+                }
+            },
+            onStarted: { [weak self] in
+                Task { @MainActor in
+                    self?.logger.debug("start: audio engine started")
+                }
+            }
+        )
+    }
+
+    func stopAndFinalize() {
+        guard isListening else { return }
+        logger.debug("stopAndFinalize: endAudio")
+        isListening = false
+        backend.stopAndFinalize()
+    }
+
+    func stopByUser() {
+        logger.debug("stopByUser")
+        isListening = false
+        backend.stopByUser()
+    }
+
+    /// Smooths throttled ~25fps level samples into the bar array (no random jitter — avoids jagged jumps).
+    private func applySmoothedWaveformLevel(_ level: CGFloat) {
+        let clamped = max(0.12, min(1.0, level))
+        var next = waveform
+        let count = next.count
+        guard count > 0 else { return }
+        for i in 0..<count {
+            let t = count == 1 ? 0.5 : CGFloat(i) / CGFloat(count - 1)
+            let spread = CGFloat(0.92 + 0.16 * (0.5 + 0.5 * sin(Double(i) * 0.65)))
+            let barTarget = max(0.12, min(1.0, clamped * spread))
+            let blended = next[i] * 0.78 + barTarget * 0.22
+            next[i] = max(0.12, min(1.0, blended + (t - 0.5) * 0.02))
         }
+        waveform = next
+    }
+}
 
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = shouldReportPartialResults
-        recognitionRequest = request
+private final class SpeechEngineBackend: @unchecked Sendable {
+    private enum StopOrigin {
+        case callbackResult
+        case userCancel
+    }
 
-        let localRequest = request
-        let localLevelBuffer = self.waveformLevelBuffer
-        let engine = self.audioEngine
-        let localTimeout = timeoutSeconds
+    private let lock = NSLock()
+    private var speechRecognizer: SFSpeechRecognizer?
+    private var audioEngine = AVAudioEngine()
+    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
+    private var recognitionTask: SFSpeechRecognitionTask?
+    private var recordingTimeoutTask: Task<Void, Never>?
+    private var isShuttingDown = false
+    private let waveformLevelBuffer = WaveformLevelBuffer()
+    private let logger = Logger(subsystem: "com.lingodex.app", category: "SpeechEngineBackend")
+
+    /// Starts speech engine and recognition fully off the main thread.
+    func start(
+        languageTag: String,
+        shouldReportPartialResults: Bool,
+        timeoutSeconds: UInt64,
+        onTranscript: @escaping @Sendable (String, Bool) -> Void,
+        onError: @escaping @Sendable (String) -> Void,
+        onLevel: @escaping @Sendable (CGFloat) -> Void,
+        onStarted: @escaping @Sendable () -> Void
+    ) {
+        stopByUser()
 
         Task.detached { [weak self] in
+            guard let self else { return }
             do {
+                let recognizer = SFSpeechRecognizer(locale: Locale(identifier: languageTag))
+                guard let recognizer else {
+                    onError("Speech recognition is not available on this device.")
+                    return
+                }
+                let request = SFSpeechAudioBufferRecognitionRequest()
+                request.shouldReportPartialResults = shouldReportPartialResults
+                let engine = AVAudioEngine()
+                let localLevelBuffer = self.waveformLevelBuffer
+                let localRequest = request
+                final class LevelEmitThrottle: @unchecked Sendable {
+                    var lastOnLevelTime: CFTimeInterval = 0
+                }
+                let levelEmitThrottle = LevelEmitThrottle()
+                let minLevelEmitInterval: CFTimeInterval = 0.04
+
                 try AVAudioSession.sharedInstance().setCategory(
                     .playAndRecord,
                     mode: .measurement,
@@ -96,143 +178,123 @@ final class SpeechSessionController {
                 )
                 try AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
 
-                await MainActor.run {
-                    guard let self else { return }
-                    let inputNode = engine.inputNode
-                    let format = inputNode.outputFormat(forBus: 0)
-                    inputNode.removeTap(onBus: 0)
-                    self.logger.debug("start: install tap")
-                    inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
-                        if let channelData = buffer.floatChannelData?[0], buffer.frameLength > 0 {
-                            let channelDataArray = UnsafeBufferPointer(start: channelData, count: Int(buffer.frameLength))
-                            var sumSquares: Float = 0
-                            for sample in channelDataArray {
-                                sumSquares += sample * sample
-                            }
-                            let rms = sqrt(sumSquares / Float(buffer.frameLength))
-                            let level = min(max(rms * 12, 0.05), 1.0)
-                            localLevelBuffer.set(level: CGFloat(level))
+                let inputNode = engine.inputNode
+                let format = inputNode.outputFormat(forBus: 0)
+                inputNode.removeTap(onBus: 0)
+                inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+                    if let channelData = buffer.floatChannelData?[0], buffer.frameLength > 0 {
+                        let channelDataArray = UnsafeBufferPointer(start: channelData, count: Int(buffer.frameLength))
+                        var sumSquares: Float = 0
+                        for sample in channelDataArray {
+                            sumSquares += sample * sample
                         }
-                        localRequest.append(buffer)
+                        let rms = sqrt(sumSquares / Float(buffer.frameLength))
+                        let level = min(max(rms * 12, 0.05), 1.0)
+                        let cgLevel = CGFloat(level)
+                        localLevelBuffer.set(level: cgLevel)
+                        let now = CACurrentMediaTime()
+                        if now - levelEmitThrottle.lastOnLevelTime >= minLevelEmitInterval {
+                            levelEmitThrottle.lastOnLevelTime = now
+                            onLevel(cgLevel)
+                        }
                     }
+                    localRequest.append(buffer)
+                }
 
-                    self.recognitionTask = self.speechRecognizer?.recognitionTask(with: request) { [weak self] result, error in
-                        guard let self else { return }
-                        Task { @MainActor in
-                            if let result {
-                                let incomingTranscript = result.bestTranscription.formattedString
-                                let now = Date()
-                                let shouldCommit = result.isFinal
-                                    || incomingTranscript != self.transcript
-                                        && now.timeIntervalSince(self.lastTranscriptCommitAt) >= 0.12
-                                if shouldCommit {
-                                    self.transcript = incomingTranscript
-                                    self.lastTranscriptCommitAt = now
-                                }
-                                if result.isFinal {
-                                    self.logger.debug("callback: final result")
-                                    self.isListening = false
-                                    self.onFinalTranscript?(self.transcript)
-                                    self.teardown(origin: .callbackResult)
-                                }
-                            } else if let error {
-                                self.logger.error("callback: error=\(error.localizedDescription, privacy: .public)")
-                                self.isListening = false
-                                self.errorMessage = error.localizedDescription
-                                self.teardown(origin: .callbackResult)
-                            }
-                        }
+                let task = recognizer.recognitionTask(with: request) { result, error in
+                    if let result {
+                        onTranscript(result.bestTranscription.formattedString, result.isFinal)
+                    } else if let error {
+                        onError(error.localizedDescription)
                     }
                 }
+
+                self.lock.lock()
+                self.speechRecognizer = recognizer
+                self.audioEngine = engine
+                self.recognitionRequest = request
+                self.recognitionTask = task
+                self.isShuttingDown = false
+                self.lock.unlock()
+
+                self.startRecordingTimeout(seconds: timeoutSeconds, onTimeout: onError)
 
                 engine.prepare()
                 try engine.start()
-
-                await MainActor.run {
-                    guard let self else { return }
-                    self.logger.debug("start: audio engine started")
-                    self.isListening = true
-                    self.startWaveformRenderLoop()
-                    self.startRecordingTimeout(seconds: localTimeout)
-                }
+                onStarted()
             } catch {
-                await MainActor.run {
-                    guard let self else { return }
-                    self.logger.error("start: engine error=\(error.localizedDescription, privacy: .public)")
-                    self.errorMessage = "Audio engine could not start."
-                    self.isListening = false
-                    self.teardown(origin: .userCancel)
-                }
+                self.logger.error("start: engine error=\(error.localizedDescription, privacy: .public)")
+                onError("Audio engine could not start.")
+                self.stopFromCallback()
             }
         }
     }
 
+    /// Ends audio for final transcript processing.
     func stopAndFinalize() {
-        guard isListening else { return }
-        logger.debug("stopAndFinalize: endAudio")
-        isListening = false
-        recognitionRequest?.endAudio()
+        lock.lock()
+        let request = recognitionRequest
+        lock.unlock()
+        request?.endAudio()
     }
 
+    /// Stops backend from explicit user cancellation.
     func stopByUser() {
-        logger.debug("stopByUser")
-        isListening = false
         teardown(origin: .userCancel)
     }
 
-    func teardown(origin: StopOrigin) {
-        guard !isShuttingDown else { return }
-        isShuttingDown = true
-        logger.debug("teardown: origin=\(origin.rawValue, privacy: .public)")
+    /// Stops backend from recognition callback completion/error.
+    func stopFromCallback() {
+        teardown(origin: .callbackResult)
+    }
 
-        waveformRenderTask?.cancel()
-        waveformRenderTask = nil
+    private func startRecordingTimeout(
+        seconds: UInt64,
+        onTimeout: @escaping @Sendable (String) -> Void
+    ) {
+        recordingTimeoutTask?.cancel()
+        recordingTimeoutTask = Task.detached { [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            guard let self else { return }
+            self.lock.lock()
+            let activeRequest = self.recognitionRequest
+            self.lock.unlock()
+            guard activeRequest != nil else { return }
+            onTimeout("Recording timed out. Please try again.")
+            self.stopByUser()
+        }
+    }
+
+    private func teardown(origin: StopOrigin) {
+        lock.lock()
+        if isShuttingDown {
+            lock.unlock()
+            return
+        }
+        isShuttingDown = true
+        let task = recognitionTask
+        let request = recognitionRequest
+        let engine = audioEngine
         recordingTimeoutTask?.cancel()
         recordingTimeoutTask = nil
-
-        if audioEngine.isRunning {
-            audioEngine.stop()
-        }
-        audioEngine.inputNode.removeTap(onBus: 0)
-
-        if origin == .userCancel {
-            recognitionTask?.cancel()
-        }
         recognitionTask = nil
         recognitionRequest = nil
-        onFinalTranscript = nil
+        lock.unlock()
 
+        if origin == .userCancel {
+            request?.endAudio()
+            task?.cancel()
+        }
+
+        if engine.isRunning {
+            engine.stop()
+        }
+        engine.inputNode.removeTap(onBus: 0)
         restorePlaybackAudioSession()
+
+        lock.lock()
         isShuttingDown = false
-    }
-
-    private func startRecordingTimeout(seconds: UInt64) {
-        recordingTimeoutTask?.cancel()
-        recordingTimeoutTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(seconds))
-            guard !Task.isCancelled, isListening else { return }
-            logger.error("timeout: recording exceeded \(seconds, privacy: .public)s")
-            isListening = false
-            errorMessage = "Recording timed out. Please try again."
-            teardown(origin: .userCancel)
-        }
-    }
-
-    private func startWaveformRenderLoop() {
-        waveformRenderTask?.cancel()
-        waveformRenderTask = Task { @MainActor in
-            while !Task.isCancelled && isListening {
-                try? await Task.sleep(for: .milliseconds(40))
-                let level = waveformLevelBuffer.level()
-                var next = waveform
-                for i in 0..<next.count {
-                    let jitter = CGFloat.random(in: -0.08...0.08)
-                    let target = max(0.12, min(1.0, level + jitter))
-                    next[i] = max(next[i] * 0.85, target)
-                }
-                waveform = next
-            }
-        }
+        lock.unlock()
     }
 
     private func restorePlaybackAudioSession() {
