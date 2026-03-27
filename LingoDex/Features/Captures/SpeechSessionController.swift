@@ -229,13 +229,25 @@ private final class SpeechEngineBackend: @unchecked Sendable {
         }
     }
 
-    /// Ends audio for final transcript processing.
+    /// Ends audio for final transcript processing safely.
     func stopAndFinalize() {
         Task.detached { [weak self] in
             guard let self else { return }
+
             self.lock.lock()
             let request = self.recognitionRequest
+            let engine = self.audioEngine
             self.lock.unlock()
+
+            // Step 1: Stop the engine to immediately halt the hardware audio stream
+            if engine.isRunning {
+                engine.stop()
+            }
+
+            // Step 2: Remove the tap so no more buffers are captured
+            engine.inputNode.removeTap(onBus: 0)
+
+            // Step 3: ONLY THEN safely finalize the recognition request
             request?.endAudio()
         }
     }
