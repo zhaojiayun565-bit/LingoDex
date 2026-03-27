@@ -150,10 +150,9 @@ private final class SpeechEngineBackend: @unchecked Sendable {
         onLevel: @escaping @Sendable (CGFloat) -> Void,
         onStarted: @escaping @Sendable () -> Void
     ) {
-        stopByUser()
-
         Task.detached { [weak self] in
             guard let self else { return }
+            self.teardown(origin: .userCancel)
             do {
                 let recognizer = SFSpeechRecognizer(locale: Locale(identifier: languageTag))
                 guard let recognizer else {
@@ -232,20 +231,27 @@ private final class SpeechEngineBackend: @unchecked Sendable {
 
     /// Ends audio for final transcript processing.
     func stopAndFinalize() {
-        lock.lock()
-        let request = recognitionRequest
-        lock.unlock()
-        request?.endAudio()
+        Task.detached { [weak self] in
+            guard let self else { return }
+            self.lock.lock()
+            let request = self.recognitionRequest
+            self.lock.unlock()
+            request?.endAudio()
+        }
     }
 
     /// Stops backend from explicit user cancellation.
     func stopByUser() {
-        teardown(origin: .userCancel)
+        Task.detached { [weak self] in
+            self?.teardown(origin: .userCancel)
+        }
     }
 
     /// Stops backend from recognition callback completion/error.
     func stopFromCallback() {
-        teardown(origin: .callbackResult)
+        Task.detached { [weak self] in
+            self?.teardown(origin: .callbackResult)
+        }
     }
 
     private func startRecordingTimeout(
