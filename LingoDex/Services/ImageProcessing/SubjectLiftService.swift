@@ -9,6 +9,17 @@ import CoreImage.CIFilterBuiltins
 final class SubjectLiftService: Sendable {
     private lazy var ciContext: CIContext = { CIContext(options: [.useSoftwareRenderer: false]) }()
 
+    /// Warms Vision framework and CIContext so first real capture is fast. Call in background.
+    func warmUp() async {
+        let size = CGSize(width: 64, height: 64)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        let image = renderer.image { ctx in
+            UIColor.white.setFill()
+            ctx.fill(CGRect(origin: .zero, size: size))
+        }
+        _ = try? await extractSticker(from: image)
+    }
+
     /// Returns sticker image with transparent background.
     func extractSticker(from image: UIImage) async throws -> UIImage {
         if let sticker = await extractViaVision(image) {

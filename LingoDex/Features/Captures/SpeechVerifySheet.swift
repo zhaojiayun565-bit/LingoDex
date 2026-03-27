@@ -1,6 +1,5 @@
+import Foundation
 import SwiftUI
-import Speech
-import AVFoundation
 
 struct SpeechVerifySheet: View {
     let expectedWord: String
@@ -9,26 +8,9 @@ struct SpeechVerifySheet: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    private let speechRecognizer: SFSpeechRecognizer?
-    private let audioEngine = AVAudioEngine()
+    @State private var speech = SpeechSessionController()
 
-    @State private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
-    @State private var recognitionTask: SFSpeechRecognitionTask?
-
-    @State private var isListening = false
-    @State private var transcript: String = ""
     @State private var isCorrect: Bool? = nil
-    @State private var errorMessage: String?
-
-    // Simple waveform bars.
-    @State private var waveform: [CGFloat] = Array(repeating: 0.15, count: 24)
-
-    init(expectedWord: String, nativeHint: String, language: Language) {
-        self.expectedWord = expectedWord
-        self.nativeHint = nativeHint
-        self.language = language
-        self.speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: language.localeTag))
-    }
 
     var body: some View {
         NavigationStack {
@@ -41,14 +23,14 @@ struct SpeechVerifySheet: View {
                         .foregroundStyle(.secondary)
                 }
 
-                WaveformView(bars: waveform)
+                WaveformView(bars: speech.waveform)
                     .frame(height: 80)
 
                 if let isCorrect {
                     verdict
                 }
 
-                if let errorMessage {
+                if let errorMessage = speech.errorMessage {
                     Text(errorMessage)
                         .font(.system(size: 13))
                         .foregroundStyle(.red)
@@ -58,7 +40,7 @@ struct SpeechVerifySheet: View {
                         Text("You said:")
                             .font(.system(size: 13))
                             .foregroundStyle(.secondary)
-                        Text(transcript.isEmpty ? "—" : transcript)
+                        Text(speech.transcript.isEmpty ? "—" : speech.transcript)
                             .font(.system(size: 15))
                             .multilineTextAlignment(.center)
                     }
@@ -76,15 +58,18 @@ struct SpeechVerifySheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") {
-                        stopListening()
+                        speech.stopByUser()
                         dismiss()
                     }
                 }
             }
             .onAppear {
-                if transcript.isEmpty && !isListening {
+                if speech.transcript.isEmpty && !speech.isListening {
                     Task { await requestAndStart() }
                 }
+            }
+            .onDisappear {
+                speech.stopByUser()
             }
         }
     }
@@ -99,7 +84,7 @@ struct SpeechVerifySheet: View {
 
     private var controls: some View {
         VStack(spacing: 12) {
-            if isListening {
+            if speech.isListening {
                 Button {
                     stopAndFinalize()
                 } label: {
@@ -134,137 +119,26 @@ struct SpeechVerifySheet: View {
     }
 
     private func resetForRetry() {
-        transcript = ""
         isCorrect = nil
-        errorMessage = nil
-        waveform = Array(repeating: 0.15, count: 24)
+        speech.clearDisplayState()
     }
 
     private func requestAndStart() async {
-        guard let speechRecognizer else {
-            errorMessage = "Speech recognition is not available on this device."
+        let granted = await speech.requestPermissions()
+        guard granted else {
+            speech.errorMessage = "Permissions are required for recording and speech recognition."
             return
         }
-
-        do {
-            let granted = try await requestMicrophoneAndSpeechPermissions()
-            guard granted else {
-                errorMessage = "Permissions are required for recording and speech recognition."
-                return
+        await MainActor.run {
+            speech.start(language: language, shouldReportPartialResults: true) { transcript in
+                isCorrect = comparePronunciation(transcript: transcript, expected: expectedWord)
             }
-            startListening()
-        } catch {
-            errorMessage = "Could not start recording."
-        }
-    }
-
-    private func requestMicrophoneAndSpeechPermissions() async throws -> Bool {
-        let speechAuth = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Bool, Error>) in
-            SFSpeechRecognizer.requestAuthorization { status in
-                continuation.resume(returning: status == .authorized)
-            }
-        }
-
-        guard speechAuth else { return false }
-
-        return await withCheckedContinuation { continuation in
-            AVAudioSession.sharedInstance().requestRecordPermission { allowed in
-                continuation.resume(returning: allowed)
-            }
-        }
-    }
-
-    private func startListening() {
-        if isListening { return }
-
-        // Reset any previous task state.
-        stopListening()
-
-        isCorrect = nil
-        transcript = ""
-        errorMessage = nil
-
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-        recognitionRequest = request
-
-        // `inputNode` is non-optional; it is always available once the audio engine exists.
-        let inputNode = audioEngine.inputNode
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
-
-        inputNode.removeTap(onBus: 0)
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
-            updateWaveform(with: buffer)
-            self.recognitionRequest?.append(buffer)
-        }
-
-        recognitionTask = speechRecognizer?.recognitionTask(with: request) { result, error in
-            DispatchQueue.main.async {
-                if let result {
-                    transcript = result.bestTranscription.formattedString
-                    if result.isFinal {
-                        isListening = false
-                        isCorrect = comparePronunciation(transcript: transcript, expected: expectedWord)
-                        stopListening()
-                    }
-                } else if let error {
-                    isListening = false
-                    self.errorMessage = error.localizedDescription
-                    stopListening()
-                }
-            }
-        }
-
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.record, mode: .measurement, options: .duckOthers)
-            try AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
-            try audioEngine.start()
-            isListening = true
-        } catch {
-            errorMessage = "Audio engine could not start."
-            isListening = false
         }
     }
 
     private func stopAndFinalize() {
-        guard isListening else { return }
-
-        isListening = false
-        recognitionRequest?.endAudio()
-        stopListening()
-    }
-
-    private func stopListening() {
-        if audioEngine.isRunning {
-            audioEngine.stop()
-        }
-        audioEngine.inputNode.removeTap(onBus: 0)
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        recognitionRequest = nil
-    }
-
-    private func updateWaveform(with buffer: AVAudioPCMBuffer) {
-        guard let channelData = buffer.floatChannelData?[0] else { return }
-
-        let channelDataArray = UnsafeBufferPointer(start: channelData, count: Int(buffer.frameLength))
-        var sumSquares: Float = 0
-        for sample in channelDataArray {
-            sumSquares += sample * sample
-        }
-        let rms = sqrt(sumSquares / Float(buffer.frameLength))
-
-        // Map RMS into a visual range.
-        let level = min(max(rms * 12, 0.05), 1.0)
-
-        DispatchQueue.main.async {
-            let count = waveform.count
-            for i in 0..<count {
-                let jitter = CGFloat.random(in: -0.08...0.08)
-                let target = max(0.12, min(1.0, CGFloat(level) + jitter))
-                waveform[i] = max(waveform[i] * 0.85, target)
-            }
-        }
+        guard speech.isListening else { return }
+        speech.stopAndFinalize()
     }
 
     private func comparePronunciation(transcript: String, expected: String) -> Bool {

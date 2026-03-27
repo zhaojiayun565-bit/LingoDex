@@ -1,7 +1,5 @@
 import SwiftUI
 import UIKit
-import Speech
-import AVFoundation
 import AudioToolbox
 
 /// Detail view when user taps a capture card. Figma layout with 3D flip, TTS, inline pronunciation test.
@@ -33,10 +31,8 @@ struct WordDetailView: View {
     }
 
     @State private var micState: MicState = .idle
-    @State private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
-    @State private var recognitionTask: SFSpeechRecognitionTask?
-    private let audioEngine = AVAudioEngine()
-    private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+    @State private var speech = SpeechSessionController()
+    @State private var isAwaitingMicResult = false
 
     @State private var showOptionsMenu = false
     @State private var showEditSheet = false
@@ -67,11 +63,18 @@ struct WordDetailView: View {
             }
         }
         .onAppear {
-            try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
-            try? AVAudioSession.sharedInstance().setActive(true)
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             withAnimation(.spring(response: 0.55, dampingFraction: 0.82)) {
                 flipDegrees = 0
+            }
+        }
+        .onDisappear {
+            speech.stopByUser()
+        }
+        .onChange(of: speech.errorMessage) { _, error in
+            if error != nil && micState == .recording && isAwaitingMicResult {
+                isAwaitingMicResult = false
+                micState = .idle
             }
         }
         .confirmationDialog("Options", isPresented: $showOptionsMenu, titleVisibility: .visible) {
@@ -283,7 +286,7 @@ struct WordDetailView: View {
             flipDegrees = 90
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-            stopListening()
+            speech.stopByUser()
             onDismiss()
         }
     }
@@ -314,51 +317,21 @@ struct WordDetailView: View {
     private func startRecording() {
         guard micState == .idle else { return }
         micState = .recording
+        isAwaitingMicResult = true
 
         Task {
-            let granted = await requestPermissions()
+            let granted = await speech.requestPermissions()
             guard granted else {
-                await MainActor.run { micState = .idle }
+                await MainActor.run {
+                    isAwaitingMicResult = false
+                    micState = .idle
+                }
                 return
             }
             await MainActor.run {
-                beginListening()
-            }
-        }
-    }
-
-    private func requestPermissions() async -> Bool {
-        let speechOk = await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in
-            SFSpeechRecognizer.requestAuthorization { status in
-                c.resume(returning: status == .authorized)
-            }
-        }
-        guard speechOk else { return false }
-        return await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in
-            AVAudioSession.sharedInstance().requestRecordPermission { c.resume(returning: $0) }
-        }
-    }
-
-    private func beginListening() {
-        stopListening()
-
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = false
-        recognitionRequest = request
-
-        let inputNode = audioEngine.inputNode
-        let format = inputNode.outputFormat(forBus: 0)
-        inputNode.removeTap(onBus: 0)
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [request] buffer, _ in
-            request.append(buffer)
-        }
-
-        let expectedWord = displayedWord.learnWord
-        recognitionTask = speechRecognizer?.recognitionTask(with: request) { result, error in
-            Task { @MainActor in
-                if let result, result.isFinal {
-                    let transcript = result.bestTranscription.formattedString
-                    let accuracy = Self.pronunciationAccuracy(expected: expectedWord, transcript: transcript)
+                speech.start(language: .english, shouldReportPartialResults: false) { transcript in
+                    isAwaitingMicResult = false
+                    let accuracy = Self.pronunciationAccuracy(expected: displayedWord.learnWord, transcript: transcript)
                     if accuracy >= 0.6 {
                         micState = .success
                         AudioServicesPlaySystemSound(1057) // success ding
@@ -371,36 +344,15 @@ struct WordDetailView: View {
                     } else {
                         micState = .failure
                     }
-                    stopListening()
-                } else if error != nil {
-                    micState = .idle
-                    stopListening()
                 }
             }
-        }
-
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.record, mode: .measurement, options: .duckOthers)
-            try AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
-            try audioEngine.start()
-        } catch {
-            micState = .idle
         }
     }
 
     private func stopRecording() {
         guard micState == .recording else { return }
-        recognitionRequest?.endAudio()
-    }
-
-    private func stopListening() {
-        if audioEngine.isRunning {
-            audioEngine.stop()
-        }
-        audioEngine.inputNode.removeTap(onBus: 0)
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        recognitionRequest = nil
+        // Keep stop icon visible until final result callback sets success/failure.
+        speech.stopAndFinalize()
     }
 
     /// Returns 0...1; 1 = perfect match.

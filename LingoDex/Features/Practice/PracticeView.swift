@@ -25,7 +25,7 @@ struct PracticeView: View {
                         emptyState
                     } else {
                         ForEach(Array(viewModel.dueWords.prefix(30))) { word in
-                            PracticeCard(deps: deps, word: word) { rating in
+                            PracticeCard(word: word) { rating in
                                 viewModel.rate(wordId: word.id, rating: rating)
                             }
                         }
@@ -36,6 +36,10 @@ struct PracticeView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 20)
                 .padding(.bottom, 92)
+            }
+            .onChange(of: viewModel.dueWords) { _, dueWords in
+                let missingIDs = dueWords.filter { $0.thumbnailData == nil }.map(\.id)
+                viewModel.scheduleThumbnailBackfill(for: missingIDs)
             }
         }
     }
@@ -86,11 +90,8 @@ struct PracticeView: View {
 }
 
 private struct PracticeCard: View {
-    let deps: Dependencies
     let word: WordEntry
     let onRate: (SRSRating) -> Void
-
-    @State private var uiImage: UIImage?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -103,7 +104,7 @@ private struct PracticeCard: View {
                     )
                     .frame(height: 150)
 
-                if let uiImage {
+                if let thumbnailData = word.thumbnailData, let uiImage = UIImage(data: thumbnailData) {
                     Image(uiImage: uiImage)
                         .resizable()
                         .scaledToFill()
@@ -162,9 +163,6 @@ private struct PracticeCard: View {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(DesignTokens.colors.cardStroke, lineWidth: 1)
         )
-        .task(id: word.imageFileName) {
-            uiImage = await deps.imageLoader.loadThumbnail(fileName: word.imageFileName, maxSize: 200)
-        }
     }
 
     @ViewBuilder

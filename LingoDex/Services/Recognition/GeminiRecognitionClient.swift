@@ -13,6 +13,14 @@ struct GeminiRecognitionClient: Sendable {
         self.authTokenProvider = authTokenProvider
     }
 
+    /// Establishes HTTP connection to Supabase host so first recognize call is fast. Skips if not signed in.
+    func warmUp() async {
+        guard authTokenProvider() != nil else { return }
+        var request = URLRequest(url: supabaseURL)
+        request.httpMethod = "HEAD"
+        _ = try? await URLSession.shared.data(for: request)
+    }
+
     /// Sends downscaled image to Gemini via Edge Function. Returns metadata or throws.
     func recognize(
         image: UIImage,

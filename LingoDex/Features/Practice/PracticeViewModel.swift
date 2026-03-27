@@ -6,6 +6,8 @@ import Observation
     private let deps: Dependencies
     var sessions: [CaptureSession] = []
     private var lastLoadedAt: Date? = nil
+    private var pendingThumbnailBackfillIDs: Set<UUID> = []
+    private var thumbnailBackfillTask: Task<Void, Never>?
 
     var dueWords: [WordEntry] {
         let now = Date()
@@ -25,7 +27,7 @@ import Observation
 
     func load() async {
         do {
-            sessions = try deps.captureStore.loadSessions()
+            sessions = try await deps.captureStore.loadSessionsAsync()
             lastLoadedAt = Date()
         } catch {
             sessions = []
@@ -53,6 +55,30 @@ import Observation
                 try deps.captureStore.updateWordSRS(id: wordId, srs: srs)
             } catch {
                 // For MVP: ignore persistence failures.
+            }
+        }
+    }
+
+    func scheduleThumbnailBackfill(for ids: [UUID]) {
+        let missing = Set(ids)
+        guard !missing.isEmpty else { return }
+        pendingThumbnailBackfillIDs.formUnion(missing)
+        guard thumbnailBackfillTask == nil else { return }
+
+        thumbnailBackfillTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard let self else { return }
+            let batch = Array(self.pendingThumbnailBackfillIDs)
+            self.pendingThumbnailBackfillIDs.removeAll()
+            self.thumbnailBackfillTask = nil
+
+            do {
+                let changed = try await deps.captureStore.backfillMissingThumbnails(for: batch)
+                if changed {
+                    await load()
+                }
+            } catch {
+                // Keep placeholder images when backfill fails.
             }
         }
     }

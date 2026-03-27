@@ -5,6 +5,9 @@ import UIKit
 /// Uses a dedicated queue for session start/stop to avoid blocking the main thread.
 final class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate {
     var onImagePicked: ((CapturedImageInfo) -> Void)?
+    var onPreviewReady: (() -> Void)?
+    var preWarmedSession: AVCaptureSession?
+    var preWarmedPhotoOutput: AVCapturePhotoOutput?
 
     private let sessionQueue = DispatchQueue(label: "camera.session")
     private var lastShutterTrigger = 0
@@ -15,8 +18,16 @@ final class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegat
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
-        sessionQueue.async { [weak self] in
-            self?.setupCamera()
+        if let session = preWarmedSession {
+            captureSession = session
+            photoOutput = preWarmedPhotoOutput
+            sessionQueue.async { [weak self] in
+                self?.attachPreviewLayer()
+            }
+        } else {
+            sessionQueue.async { [weak self] in
+                self?.setupCamera()
+            }
         }
     }
 
@@ -53,10 +64,13 @@ final class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegat
 
     private func setupCamera() {
         let session = AVCaptureSession()
-        session.sessionPreset = .photo
+        session.sessionPreset = .high  // 1080p for faster startup than .photo (12MP)
 
         guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
-              let input = try? AVCaptureDeviceInput(device: device) else { return }
+              let input = try? AVCaptureDeviceInput(device: device) else {
+            DispatchQueue.main.async { [weak self] in self?.onPreviewReady?() }
+            return
+        }
 
         if session.canAddInput(input) {
             session.addInput(input)
@@ -77,6 +91,28 @@ final class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegat
             layer.frame = self.view.bounds
             self.view.layer.addSublayer(layer)
             self.previewLayer = layer
+            self.onPreviewReady?()
+        }
+    }
+
+    /// Attaches preview layer to pre-warmed session. Runs on sessionQueue.
+    private func attachPreviewLayer() {
+        guard let session = captureSession else { return }
+        if photoOutput == nil {
+            let output = AVCapturePhotoOutput()
+            if session.canAddOutput(output) {
+                session.addOutput(output)
+                photoOutput = output
+            }
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let layer = AVCaptureVideoPreviewLayer(session: session)
+            layer.videoGravity = .resizeAspectFill
+            layer.frame = self.view.bounds
+            self.view.layer.addSublayer(layer)
+            self.previewLayer = layer
+            self.onPreviewReady?()
         }
     }
 

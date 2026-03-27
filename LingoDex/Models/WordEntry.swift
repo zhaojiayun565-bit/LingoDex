@@ -8,5 +8,6 @@ struct WordEntry: Sendable, Codable, Identifiable, Equatable {
     let nativeWord: String
     let createdAt: Date
     var srs: SRSCardState
+    var thumbnailData: Data? = nil
 }
 

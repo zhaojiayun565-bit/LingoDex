@@ -34,32 +34,57 @@ enum CaptureFlowPhase: Equatable {
     private var pendingNormalizedBBox: String?
     private var pendingLearningLang: String = "english"
     private var pendingNativeLang: String = "english"
+    private var hasStartedInitialLoad = false
+    private var isLoadingFullCaptureHistory = false
+    private var pendingThumbnailBackfillIDs: Set<UUID> = []
+    private var thumbnailBackfillTask: Task<Void, Never>?
 
     init(deps: Dependencies) {
         self.deps = deps
-        SwiftDataMigration.runIfNeeded(modelContext: deps.modelContext)
-        Task {
-            await load()
-            await deps.recognitionSync.syncIfNeeded()
-        }
+        Task { await loadInitialCaptures() }
     }
 
     func load() async {
+        await loadFullCaptures()
+    }
+
+    /// Loads the initial, bounded capture history for fast first paint.
+    func loadInitialCaptures() async {
+        guard !hasStartedInitialLoad else { return }
+        hasStartedInitialLoad = true
         do {
-            sessions = try deps.captureStore.loadSessions()
+            sessions = try await deps.captureStore.loadSessionsAsync(maxCalendarDays: 10)
         } catch {
             sessions = []
         }
+        Task { await loadFullCaptures() }
     }
 
-    /// Processes captured image: subject lift → Gemini recognition (or queue if offline). Shows result immediately.
+    /// Loads complete capture history in the background and swaps in once ready.
+    func loadFullCaptures() async {
+        guard !isLoadingFullCaptureHistory else { return }
+        isLoadingFullCaptureHistory = true
+        defer { isLoadingFullCaptureHistory = false }
+
+        do {
+            sessions = try await deps.captureStore.loadSessionsAsync()
+        } catch {
+            if sessions.isEmpty {
+                sessions = []
+            }
+        }
+    }
+
+    /// Processes captured image: subject lift and Gemini run in parallel when online. Shows result when both complete.
     func processCapturedImage(_ info: CapturedImageInfo) async {
-        captureFlowPhase = .processing
-        isProcessingCapture = true
-        pendingWord = nil
-        pendingExtractedImage = nil
-        pendingFullImage = nil
-        pendingNormalizedBBox = nil
+        setCaptureFlowState(
+            phase: .processing,
+            isProcessing: true,
+            word: nil,
+            extractedImage: nil,
+            fullImage: nil,
+            normalizedBBox: nil
+        )
 
         defer { isProcessingCapture = false }
 
@@ -67,61 +92,65 @@ enum CaptureFlowPhase: Equatable {
         let normalizedBBox = info.normalizedBBoxString
         let learningLang = Language.currentLearning.rawValue
         let nativeLang = Self.languageFromSystem().rawValue
-
-        // 1. Subject lift (sticker) — always
-        let sticker: UIImage
-        if let s = try? await deps.subjectLift.extractSticker(from: image) {
-            sticker = s
-        } else {
-            sticker = image
-        }
-
         let wordId = UUID()
         let imageFileName = "\(wordId).png"
 
-        // 2. Recognition: Gemini if online, else queue
+        // Run subject lift and Gemini recognition in parallel when online.
+        let sticker: UIImage
+        let recognitionResult: (learnWord: String, nativeWord: String, recognizedEnglish: String)?
+
         if deps.networkMonitor.isReachable {
-            do {
-                let result = try await deps.geminiRecognition.recognize(
-                    image: image,
-                    boundingBox: normalizedBBox,
-                    nativeLanguage: nativeLang,
-                    learningLanguage: learningLang
+            async let stickerTask = deps.subjectLift.extractSticker(from: image)
+            async let recognitionTask = deps.geminiRecognition.recognize(
+                image: image,
+                boundingBox: normalizedBBox,
+                nativeLanguage: nativeLang,
+                learningLanguage: learningLang
+            )
+
+            let stickerResult = try? await stickerTask
+            sticker = stickerResult ?? image
+
+            if let result = try? await recognitionTask {
+                recognitionResult = (
+                    result.targetTranslation,
+                    result.objectName ?? result.targetTranslation,
+                    result.targetTranslation
                 )
-                let learnWord = result.targetTranslation
-                let nativeWord = result.objectName ?? result.targetTranslation
-                let word = WordEntry(
-                    id: wordId,
-                    imageFileName: imageFileName,
-                    recognizedEnglish: result.targetTranslation,
-                    learnWord: learnWord,
-                    nativeWord: nativeWord,
-                    createdAt: Date(),
-                    srs: SRSCardState()
-                )
-                pendingWord = word
-                pendingExtractedImage = sticker
-                pendingFullImage = nil
-            } catch {
-                // Fallback: show pending so user can retry or save for sync.
-                let word = WordEntry(
-                    id: wordId,
-                    imageFileName: imageFileName,
-                    recognizedEnglish: "Loading…",
-                    learnWord: "Loading…",
-                    nativeWord: "Pending",
-                    createdAt: Date(),
-                    srs: SRSCardState()
-                )
-                pendingWord = word
-                pendingExtractedImage = sticker
-                pendingFullImage = image
-                pendingNormalizedBBox = normalizedBBox
-                pendingLearningLang = learningLang
-                pendingNativeLang = nativeLang
+            } else {
+                recognitionResult = nil
             }
         } else {
-            let word = WordEntry(
+            // Offline: sticker only, queue for sync.
+            if let s = try? await deps.subjectLift.extractSticker(from: image) {
+                sticker = s
+            } else {
+                sticker = image
+            }
+            recognitionResult = nil
+        }
+
+        // Build word entry: use recognition result or pending state.
+        if let r = recognitionResult {
+            let nextWord = WordEntry(
+                id: wordId,
+                imageFileName: imageFileName,
+                recognizedEnglish: r.recognizedEnglish,
+                learnWord: r.learnWord,
+                nativeWord: r.nativeWord,
+                createdAt: Date(),
+                srs: SRSCardState()
+            )
+            setCaptureFlowState(
+                phase: .result,
+                isProcessing: isProcessingCapture,
+                word: nextWord,
+                extractedImage: sticker,
+                fullImage: nil,
+                normalizedBBox: nil
+            )
+        } else {
+            let nextWord = WordEntry(
                 id: wordId,
                 imageFileName: imageFileName,
                 recognizedEnglish: "Loading…",
@@ -130,15 +159,17 @@ enum CaptureFlowPhase: Equatable {
                 createdAt: Date(),
                 srs: SRSCardState()
             )
-            pendingWord = word
-            pendingExtractedImage = sticker
-            pendingFullImage = image
-            pendingNormalizedBBox = normalizedBBox
+            setCaptureFlowState(
+                phase: .result,
+                isProcessing: isProcessingCapture,
+                word: nextWord,
+                extractedImage: sticker,
+                fullImage: image,
+                normalizedBBox: normalizedBBox
+            )
             pendingLearningLang = learningLang
             pendingNativeLang = nativeLang
         }
-
-        captureFlowPhase = .result
     }
 
     /// Persists pending word and sticker. Uses pending entity when offline (queued for sync).
@@ -175,20 +206,51 @@ enum CaptureFlowPhase: Equatable {
             // Fail silently for MVP.
         }
 
-        pendingWord = nil
-        pendingExtractedImage = nil
-        pendingFullImage = nil
-        pendingNormalizedBBox = nil
-        captureFlowPhase = .camera
+        setCaptureFlowState(
+            phase: .camera,
+            isProcessing: false,
+            word: nil,
+            extractedImage: nil,
+            fullImage: nil,
+            normalizedBBox: nil
+        )
     }
 
     /// Discards pending capture without saving.
     func dismissPending() {
-        pendingWord = nil
-        pendingExtractedImage = nil
-        pendingFullImage = nil
-        pendingNormalizedBBox = nil
-        captureFlowPhase = .camera
+        setCaptureFlowState(
+            phase: .camera,
+            isProcessing: false,
+            word: nil,
+            extractedImage: nil,
+            fullImage: nil,
+            normalizedBBox: nil
+        )
+    }
+
+    /// Schedules lazy thumbnail backfill for words missing SwiftData thumbnail blobs.
+    func scheduleThumbnailBackfill(for ids: [UUID]) {
+        let missing = Set(ids)
+        guard !missing.isEmpty else { return }
+        pendingThumbnailBackfillIDs.formUnion(missing)
+        guard thumbnailBackfillTask == nil else { return }
+
+        thumbnailBackfillTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard let self else { return }
+            let batch = Array(self.pendingThumbnailBackfillIDs)
+            self.pendingThumbnailBackfillIDs.removeAll()
+            self.thumbnailBackfillTask = nil
+
+            do {
+                let changed = try await deps.captureStore.backfillMissingThumbnails(for: batch)
+                if changed {
+                    await loadFullCaptures()
+                }
+            } catch {
+                // Ignore backfill failures; placeholders remain.
+            }
+        }
     }
 
     /// Deletes a word from sessions and its image file.
@@ -249,6 +311,22 @@ enum CaptureFlowPhase: Equatable {
 
         // Mark progress immediately to avoid re-triggering while the sheet is open.
         UserDefaults.standard.set(totalWordCount, forKey: storyMetaLastWordCountKey)
+    }
+
+    private func setCaptureFlowState(
+        phase: CaptureFlowPhase,
+        isProcessing: Bool,
+        word: WordEntry?,
+        extractedImage: UIImage?,
+        fullImage: UIImage?,
+        normalizedBBox: String?
+    ) {
+        captureFlowPhase = phase
+        isProcessingCapture = isProcessing
+        pendingWord = word
+        pendingExtractedImage = extractedImage
+        pendingFullImage = fullImage
+        pendingNormalizedBBox = normalizedBBox
     }
 
     func createStoryIfNeeded() async {

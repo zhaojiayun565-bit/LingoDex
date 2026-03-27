@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 import UIKit
 
@@ -6,6 +7,8 @@ struct CaptureFlowView: View {
     @Binding var isPresented: Bool
     let deps: Dependencies
     @Bindable var viewModel: CapturesViewModel
+    var preWarmedSession: AVCaptureSession? = nil
+    var preWarmedPhotoOutput: AVCapturePhotoOutput? = nil
 
     @State private var verificationTarget: WordEntry?
     @State private var isShowingPhotoPicker = false
@@ -23,7 +26,9 @@ struct CaptureFlowView: View {
                         viewModel.dismissPending()
                         isPresented = false
                     },
-                    onPhotoLibrary: { isShowingPhotoPicker = true }
+                    onPhotoLibrary: { isShowingPhotoPicker = true },
+                    preWarmedSession: preWarmedSession,
+                    preWarmedPhotoOutput: preWarmedPhotoOutput
                 )
             case .processing:
                 processingOverlay
@@ -84,7 +89,9 @@ struct CaptureFlowView: View {
                 onRetry: {
                     viewModel.dismissPending()
                 },
-                onTryPronunciation: { verificationTarget = $0 }
+                onTryPronunciation: {
+                    verificationTarget = $0
+                }
             )
         }
     }

@@ -5,6 +5,7 @@ import Supabase
 /// Services are lazy so only those needed for the first frame are created at launch.
 final class Dependencies {
     var modelContext: ModelContext { LingoDexApp.modelContainer.mainContext }
+    var modelContainer: ModelContainer { LingoDexApp.modelContainer }
 
     lazy var supabase: SupabaseClient = {
         let urlString = (Bundle.main.object(forInfoDictionaryKey: "SUPABASE_URL") as? String)
@@ -19,6 +20,7 @@ final class Dependencies {
 
     lazy var captureStore: SwiftDataCaptureStore = SwiftDataCaptureStore(
         modelContext: modelContext,
+        modelContainer: modelContainer,
         imageStore: localStore
     )
     lazy var objectRecognition: any ObjectRecognitionClient = AppleVisionObjectRecognitionClient()
@@ -54,6 +56,7 @@ final class Dependencies {
             .appendingPathComponent("lingodex_images", isDirectory: true)
         return ImageLoadingService(imagesDirectoryURL: dir)
     }()
+    lazy var cameraWarmup: CameraWarmupCoordinator = CameraWarmupCoordinator()
 }
 
 extension Dependencies {

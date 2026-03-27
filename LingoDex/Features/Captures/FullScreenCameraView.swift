@@ -8,13 +8,26 @@ struct FullScreenCameraView: View {
     let onImagePicked: (CapturedImageInfo) -> Void
     let onCancel: () -> Void
     let onPhotoLibrary: () -> Void
+    var preWarmedSession: AVCaptureSession? = nil
+    var preWarmedPhotoOutput: AVCapturePhotoOutput? = nil
 
     @State private var shutterTrigger = 0
     @State private var impactLight = UIImpactFeedbackGenerator(style: .light)
+    @State private var isPreviewReady = false
 
     var body: some View {
         ZStack {
-            CameraPreviewView(onImagePicked: onImagePicked, shutterTrigger: shutterTrigger)
+            CameraPreviewView(
+                onImagePicked: onImagePicked,
+                shutterTrigger: shutterTrigger,
+                onPreviewReady: { isPreviewReady = true },
+                preWarmedSession: preWarmedSession,
+                preWarmedPhotoOutput: preWarmedPhotoOutput
+            )
+
+            if !isPreviewReady {
+                CameraLoadingOverlay()
+            }
 
             VStack {
                 Spacer()
@@ -50,6 +63,27 @@ struct FullScreenCameraView: View {
                 .background(.ultraThinMaterial, in: Circle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Pulsing placeholder shown until camera preview is ready.
+private struct CameraLoadingOverlay: View {
+    @State private var isPulsing = false
+
+    var body: some View {
+        Color.black
+            .overlay {
+                VStack(spacing: 16) {
+                    ViewfinderFrame()
+                        .opacity(isPulsing ? 0.6 : 1)
+                    Text("Starting camera…")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.9))
+                }
+            }
+            .ignoresSafeArea()
+            .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isPulsing)
+            .onAppear { isPulsing = true }
     }
 }
 
@@ -196,10 +230,16 @@ private struct ShutterButton: View {
 private struct CameraPreviewView: UIViewControllerRepresentable {
     let onImagePicked: (CapturedImageInfo) -> Void
     let shutterTrigger: Int
+    var onPreviewReady: (() -> Void)?
+    var preWarmedSession: AVCaptureSession? = nil
+    var preWarmedPhotoOutput: AVCapturePhotoOutput? = nil
 
     func makeUIViewController(context: Context) -> CameraViewController {
         let vc = CameraViewController()
         vc.onImagePicked = onImagePicked
+        vc.onPreviewReady = onPreviewReady
+        vc.preWarmedSession = preWarmedSession
+        vc.preWarmedPhotoOutput = preWarmedPhotoOutput
         return vc
     }
 

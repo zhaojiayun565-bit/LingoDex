@@ -77,6 +77,13 @@ struct CapturesView: View {
                     onDismiss: { selectedWord = nil }
                 )
             }
+            .onChange(of: capturesViewModel.sessions) { _, sessions in
+                let missingIDs = sessions
+                    .flatMap(\.words)
+                    .filter { $0.thumbnailData == nil }
+                    .map(\.id)
+                capturesViewModel.scheduleThumbnailBackfill(for: missingIDs)
+            }
         }
     }
 
@@ -151,7 +158,7 @@ struct CapturesView: View {
                     spacing: DesignTokens.layout.capturesGridSpacing
                 ) {
                     ForEach(session.words) { word in
-                        WordCard(deps: deps, word: word) {
+                        WordCard(word: word) {
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
                             selectedWord = word
                         }
@@ -161,7 +168,7 @@ struct CapturesView: View {
                         ))
                     }
                 }
-                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: session.words.map(\.id))
+                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: session.words.count)
             }
             .padding(DesignTokens.layout.capturesCardInnerPadding)
             .frame(maxWidth: .infinity)
@@ -234,10 +241,8 @@ private func matchesFuzzySearch(_ word: WordEntry, query: String) -> Bool {
 
 /// Figma-style cell: transparent cutout image, term below — no border, no chrome.
 private struct WordCard: View {
-    let deps: Dependencies
     let word: WordEntry
     var onTap: () -> Void = {}
-    @State private var uiImage: UIImage?
 
     var body: some View {
         Button(action: onTap) {
@@ -245,7 +250,7 @@ private struct WordCard: View {
                 ZStack {
                     Color.clear
                     Group {
-                        if let uiImage {
+                        if let thumbnailData = word.thumbnailData, let uiImage = UIImage(data: thumbnailData) {
                             Image(uiImage: uiImage)
                                 .resizable()
                                 .renderingMode(.original)
@@ -271,8 +276,5 @@ private struct WordCard: View {
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.plain)
-        .task(id: word.imageFileName) {
-            uiImage = await deps.imageLoader.loadThumbnail(fileName: word.imageFileName, maxSize: 200)
-        }
     }
 }

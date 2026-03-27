@@ -22,6 +22,7 @@ final class CapturedWordEntity {
     var errorFeedback: String?
     var learningLanguageRaw: String
     var nativeLanguageRaw: String
+    var thumbnailData: Data?
 
     /// For pending retry: full capture JPEG path, normalized bbox.
     var sourceImageFileName: String?
@@ -44,6 +45,7 @@ final class CapturedWordEntity {
         errorFeedback: String? = nil,
         learningLanguageRaw: String = "english",
         nativeLanguageRaw: String = "english",
+        thumbnailData: Data? = nil,
         sourceImageFileName: String? = nil,
         normalizedBBox: String? = nil
     ) {
@@ -63,6 +65,7 @@ final class CapturedWordEntity {
         self.errorFeedback = errorFeedback
         self.learningLanguageRaw = learningLanguageRaw
         self.nativeLanguageRaw = nativeLanguageRaw
+        self.thumbnailData = thumbnailData
         self.sourceImageFileName = sourceImageFileName
         self.normalizedBBox = normalizedBBox
     }
@@ -96,7 +99,8 @@ final class CapturedWordEntity {
             learnWord: learnWord,
             nativeWord: nativeWord,
             createdAt: createdAt,
-            srs: srs
+            srs: srs,
+            thumbnailData: thumbnailData
         )
     }
 }
