@@ -2,11 +2,11 @@ import SwiftUI
 
 struct WorldView: View {
     private let deps: Dependencies
-    @State private var viewModel: WorldViewModel
+    @Bindable var viewModel: WorldViewModel
 
-    init(deps: Dependencies) {
+    init(deps: Dependencies, viewModel: WorldViewModel) {
         self.deps = deps
-        _viewModel = State(initialValue: WorldViewModel(deps: deps))
+        self.viewModel = viewModel
     }
 
     var body: some View {

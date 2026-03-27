@@ -4,12 +4,12 @@ import UIKit
 struct PracticeView: View {
     private let deps: Dependencies
     private let appViewModel: AppViewModel
-    @State private var viewModel: PracticeViewModel
+    @Bindable var viewModel: PracticeViewModel
 
-    init(deps: Dependencies, appViewModel: AppViewModel) {
+    init(deps: Dependencies, appViewModel: AppViewModel, viewModel: PracticeViewModel) {
         self.deps = deps
         self.appViewModel = appViewModel
-        _viewModel = State(initialValue: PracticeViewModel(deps: deps))
+        self.viewModel = viewModel
     }
 
     var body: some View {

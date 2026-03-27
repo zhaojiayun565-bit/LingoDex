@@ -15,44 +15,30 @@ final class BackgroundRemovalService: Sendable {
         guard let ciImage = CIImage(image: image) else {
             throw LingoDexServiceError.invalidImage
         }
+        let orientation = image.imageOrientation
+        let ciContext = ciContext
 
-        guard let mask = createMask(from: ciImage) else {
-            throw LingoDexServiceError.backgroundRemovalFailed
-        }
+        return try await Task.detached(priority: .userInitiated) {
+            let request = VNGenerateForegroundInstanceMaskRequest()
+            let handler = VNImageRequestHandler(ciImage: ciImage, options: [:])
 
-        let maskedImage = applyMask(mask: mask, to: ciImage)
-        return try convertToUIImage(maskedImage, orientation: image.imageOrientation)
-    }
-
-    /// Generates a foreground mask using Vision.
-    private func createMask(from inputImage: CIImage) -> CIImage? {
-        let request = VNGenerateForegroundInstanceMaskRequest()
-        let handler = VNImageRequestHandler(ciImage: inputImage, options: [:])
-
-        do {
             try handler.perform([request])
-            guard let result = request.results?.first else { return nil }
+            guard let result = request.results?.first else {
+                throw LingoDexServiceError.backgroundRemovalFailed
+            }
             let maskBuffer = try result.generateScaledMaskForImage(forInstances: result.allInstances, from: handler)
-            return CIImage(cvPixelBuffer: maskBuffer)
-        } catch {
-            return nil
-        }
-    }
+            let mask = CIImage(cvPixelBuffer: maskBuffer)
 
-    /// Applies mask to input image; background becomes transparent.
-    private func applyMask(mask: CIImage, to image: CIImage) -> CIImage {
-        let filter = CIFilter.blendWithMask()
-        filter.inputImage = image
-        filter.maskImage = mask
-        filter.backgroundImage = CIImage.empty()
-        return filter.outputImage ?? image
-    }
+            let filter = CIFilter.blendWithMask()
+            filter.inputImage = ciImage
+            filter.maskImage = mask
+            filter.backgroundImage = CIImage.empty()
+            let masked = filter.outputImage ?? ciImage
 
-    /// Converts CIImage to UIImage, preserving orientation.
-    private func convertToUIImage(_ ciImage: CIImage, orientation: UIImage.Orientation = .up) throws -> UIImage {
-        guard let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) else {
-            throw LingoDexServiceError.backgroundRemovalFailed
-        }
-        return UIImage(cgImage: cgImage, scale: 1, orientation: orientation)
+            guard let cgImage = ciContext.createCGImage(masked, from: masked.extent) else {
+                throw LingoDexServiceError.backgroundRemovalFailed
+            }
+            return UIImage(cgImage: cgImage, scale: 1, orientation: orientation)
+        }.value
     }
 }

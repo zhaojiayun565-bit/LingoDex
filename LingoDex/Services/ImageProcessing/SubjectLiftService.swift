@@ -31,26 +31,28 @@ final class SubjectLiftService: Sendable {
     /// Vision: VNGenerateForegroundInstanceMaskRequest + blend.
     private func extractViaVision(_ image: UIImage) async -> UIImage? {
         guard let ciImage = CIImage(image: image) else { return nil }
+        let orientation = image.imageOrientation
+        let ciContext = ciContext
 
-        let request = VNGenerateForegroundInstanceMaskRequest()
-        let handler = VNImageRequestHandler(ciImage: ciImage, options: [:])
+        return await Task.detached(priority: .userInitiated) {
+            let request = VNGenerateForegroundInstanceMaskRequest()
+            let handler = VNImageRequestHandler(ciImage: ciImage, options: [:])
 
-        guard (try? handler.perform([request])) != nil,
-              let result = request.results?.first,
-              let maskBuffer = try? result.generateScaledMaskForImage(forInstances: result.allInstances, from: handler)
-        else { return nil }
+            guard (try? handler.perform([request])) != nil,
+                  let result = request.results?.first,
+                  let maskBuffer = try? result.generateScaledMaskForImage(forInstances: result.allInstances, from: handler)
+            else { return nil }
 
-        let mask = CIImage(cvPixelBuffer: maskBuffer)
-        let filter = CIFilter.blendWithMask()
-        filter.inputImage = ciImage
-        filter.maskImage = mask
-        filter.backgroundImage = CIImage.empty()
-        guard let output = filter.outputImage else { return nil }
+            let mask = CIImage(cvPixelBuffer: maskBuffer)
+            let filter = CIFilter.blendWithMask()
+            filter.inputImage = ciImage
+            filter.maskImage = mask
+            filter.backgroundImage = CIImage.empty()
+            guard let output = filter.outputImage else { return nil }
 
-        let context = CIContext(options: [.useSoftwareRenderer: false])
-        guard let cgImage = context.createCGImage(output, from: output.extent) else { return nil }
-
-        return UIImage(cgImage: cgImage, scale: 1, orientation: image.imageOrientation)
+            guard let cgImage = ciContext.createCGImage(output, from: output.extent) else { return nil }
+            return UIImage(cgImage: cgImage, scale: 1, orientation: orientation)
+        }.value
     }
 }
 

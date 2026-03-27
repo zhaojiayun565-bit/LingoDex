@@ -22,6 +22,9 @@ private struct MainTabContainer: View {
     @State private var viewModel = AppViewModel(auth: Dependencies.live.auth)
     private let deps = Dependencies.live
     @State private var capturesViewModel: CapturesViewModel?
+    @State private var meViewModel = MeViewModel(deps: Dependencies.live)
+    @State private var practiceViewModel = PracticeViewModel(deps: Dependencies.live)
+    @State private var worldViewModel = WorldViewModel(deps: Dependencies.live)
     @State private var isShowingCaptureFlow = false
     @State private var preWarmedCameraSession: (session: AVCaptureSession, photoOutput: AVCapturePhotoOutput?)?
     @State private var isShowingPhotoPicker = false
@@ -63,11 +66,11 @@ private struct MainTabContainer: View {
                 case .captures:
                     CapturesView(deps: deps, appViewModel: viewModel, capturesViewModel: capturesViewModel)
                 case .practice:
-                    PracticeView(deps: deps, appViewModel: viewModel)
+                    PracticeView(deps: deps, appViewModel: viewModel, viewModel: practiceViewModel)
                 case .world:
-                    WorldView(deps: deps)
+                    WorldView(deps: deps, viewModel: worldViewModel)
                 case .me:
-                    MeView(deps: deps, appViewModel: viewModel)
+                    MeView(deps: deps, appViewModel: viewModel, viewModel: meViewModel)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -178,13 +181,16 @@ private struct MainTabContainer: View {
             }
         }
         .task {
-            // T+0: Touch services so tabs are fast on first visit.
-            _ = deps.imageLoader
-            _ = deps.captureStore
-            // Photos + TTS warm-up (existing)
-            try? await Task.sleep(for: .seconds(0.3))
-            _ = PHPickerConfiguration(photoLibrary: .shared())
-            Task.detached(priority: .utility) {
+            Task.detached(priority: .background) {
+                let deps = Dependencies.live
+                // T+0: Touch services so tabs are fast on first visit (off main thread).
+                _ = deps.imageLoader
+                _ = deps.captureStore
+
+                // Photos + TTS warm-up (off main thread).
+                try? await Task.sleep(for: .seconds(0.3))
+                _ = PHPickerConfiguration(photoLibrary: .shared())
+
                 try? await Task.sleep(for: .seconds(0.7))
                 try? await deps.tts.speak(" ", language: .currentLearning)
             }

@@ -10,7 +10,7 @@ import UserNotifications
 struct MeView: View {
     private let deps: Dependencies
     private let appViewModel: AppViewModel
-    @State private var viewModel: MeViewModel
+    @Bindable var viewModel: MeViewModel
     @State private var rawNonce: String?
     @State private var signInErrorMessage: String?
     @State private var isShowingPhotoPicker = false
@@ -23,10 +23,10 @@ struct MeView: View {
     @FocusState private var isNameFieldFocused: Bool
     @FocusState private var keyboardWarmUpFocused: Bool
 
-    init(deps: Dependencies, appViewModel: AppViewModel) {
+    init(deps: Dependencies, appViewModel: AppViewModel, viewModel: MeViewModel) {
         self.deps = deps
         self.appViewModel = appViewModel
-        _viewModel = State(initialValue: MeViewModel(deps: deps))
+        self.viewModel = viewModel
     }
 
     var body: some View {
