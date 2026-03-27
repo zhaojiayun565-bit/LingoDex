@@ -21,7 +21,6 @@ struct MeView: View {
     @State private var draftReminderTime: Date = Date()
     @State private var draftReminderFrequency: ReminderFrequency = .daily
     @FocusState private var isNameFieldFocused: Bool
-    @FocusState private var keyboardWarmUpFocused: Bool
 
     init(deps: Dependencies, appViewModel: AppViewModel, viewModel: MeViewModel) {
         self.deps = deps
@@ -69,10 +68,6 @@ struct MeView: View {
                     .transition(.scale.combined(with: .opacity))
                     .zIndex(2)
             }
-            TextField("", text: .constant(""))
-                .frame(width: 0, height: 0)
-                .opacity(0)
-                .focused($keyboardWarmUpFocused)
         }
         .sheet(isPresented: $isShowingPhotoPicker) {
             CapturePhotoPicker(
@@ -93,12 +88,6 @@ struct MeView: View {
             draftReminderFrequency = viewModel.reminderFrequency
             await viewModel.refreshStats()
             await viewModel.refreshNotificationPermission()
-            if viewModel.user != nil {
-                try? await Task.sleep(for: .seconds(0.5))
-                keyboardWarmUpFocused = true
-                try? await Task.sleep(for: .milliseconds(100))
-                keyboardWarmUpFocused = false
-            }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.88), value: activeModal)
     }
