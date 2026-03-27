@@ -84,66 +84,86 @@ final class SpeechSessionController {
 
         let localRequest = request
         let localLevelBuffer = self.waveformLevelBuffer
+        let engine = self.audioEngine
+        let localTimeout = timeoutSeconds
 
-        let inputNode = audioEngine.inputNode
-        let format = inputNode.outputFormat(forBus: 0)
-        inputNode.removeTap(onBus: 0)
-        logger.debug("start: install tap")
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
-            if let channelData = buffer.floatChannelData?[0], buffer.frameLength > 0 {
-                let channelDataArray = UnsafeBufferPointer(start: channelData, count: Int(buffer.frameLength))
-                var sumSquares: Float = 0
-                for sample in channelDataArray {
-                    sumSquares += sample * sample
+        Task.detached { [weak self] in
+            do {
+                try AVAudioSession.sharedInstance().setCategory(
+                    .playAndRecord,
+                    mode: .measurement,
+                    options: [.defaultToSpeaker, .duckOthers, .allowBluetooth]
+                )
+                try AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
+
+                await MainActor.run {
+                    guard let self else { return }
+                    let inputNode = engine.inputNode
+                    let format = inputNode.outputFormat(forBus: 0)
+                    inputNode.removeTap(onBus: 0)
+                    self.logger.debug("start: install tap")
+                    inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+                        if let channelData = buffer.floatChannelData?[0], buffer.frameLength > 0 {
+                            let channelDataArray = UnsafeBufferPointer(start: channelData, count: Int(buffer.frameLength))
+                            var sumSquares: Float = 0
+                            for sample in channelDataArray {
+                                sumSquares += sample * sample
+                            }
+                            let rms = sqrt(sumSquares / Float(buffer.frameLength))
+                            let level = min(max(rms * 12, 0.05), 1.0)
+                            localLevelBuffer.set(level: CGFloat(level))
+                        }
+                        localRequest.append(buffer)
+                    }
+
+                    self.recognitionTask = self.speechRecognizer?.recognitionTask(with: request) { [weak self] result, error in
+                        guard let self else { return }
+                        Task { @MainActor in
+                            if let result {
+                                let incomingTranscript = result.bestTranscription.formattedString
+                                let now = Date()
+                                let shouldCommit = result.isFinal
+                                    || incomingTranscript != self.transcript
+                                        && now.timeIntervalSince(self.lastTranscriptCommitAt) >= 0.12
+                                if shouldCommit {
+                                    self.transcript = incomingTranscript
+                                    self.lastTranscriptCommitAt = now
+                                }
+                                if result.isFinal {
+                                    self.logger.debug("callback: final result")
+                                    self.isListening = false
+                                    self.onFinalTranscript?(self.transcript)
+                                    self.teardown(origin: .callbackResult)
+                                }
+                            } else if let error {
+                                self.logger.error("callback: error=\(error.localizedDescription, privacy: .public)")
+                                self.isListening = false
+                                self.errorMessage = error.localizedDescription
+                                self.teardown(origin: .callbackResult)
+                            }
+                        }
+                    }
                 }
-                let rms = sqrt(sumSquares / Float(buffer.frameLength))
-                let level = min(max(rms * 12, 0.05), 1.0)
-                localLevelBuffer.set(level: CGFloat(level))
-            }
-            localRequest.append(buffer)
-        }
 
-        recognitionTask = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
-            guard let self else { return }
-            Task { @MainActor in
-                if let result {
-                    let incomingTranscript = result.bestTranscription.formattedString
-                    let now = Date()
-                    let shouldCommit = result.isFinal
-                        || incomingTranscript != self.transcript
-                            && now.timeIntervalSince(self.lastTranscriptCommitAt) >= 0.12
-                    if shouldCommit {
-                        self.transcript = incomingTranscript
-                        self.lastTranscriptCommitAt = now
-                    }
-                    if result.isFinal {
-                        self.logger.debug("callback: final result")
-                        self.isListening = false
-                        self.onFinalTranscript?(self.transcript)
-                        self.teardown(origin: .callbackResult)
-                    }
-                } else if let error {
-                    self.logger.error("callback: error=\(error.localizedDescription, privacy: .public)")
+                engine.prepare()
+                try engine.start()
+
+                await MainActor.run {
+                    guard let self else { return }
+                    self.logger.debug("start: audio engine started")
+                    self.isListening = true
+                    self.startWaveformRenderLoop()
+                    self.startRecordingTimeout(seconds: localTimeout)
+                }
+            } catch {
+                await MainActor.run {
+                    guard let self else { return }
+                    self.logger.error("start: engine error=\(error.localizedDescription, privacy: .public)")
+                    self.errorMessage = "Audio engine could not start."
                     self.isListening = false
-                    self.errorMessage = error.localizedDescription
-                    self.teardown(origin: .callbackResult)
+                    self.teardown(origin: .userCancel)
                 }
             }
-        }
-
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .duckOthers, .allowBluetooth])
-            try AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
-            try audioEngine.start()
-            logger.debug("start: audio engine started")
-            isListening = true
-            startWaveformRenderLoop()
-            startRecordingTimeout(seconds: timeoutSeconds)
-        } catch {
-            logger.error("start: engine error=\(error.localizedDescription, privacy: .public)")
-            errorMessage = "Audio engine could not start."
-            isListening = false
-            teardown(origin: .userCancel)
         }
     }
 
@@ -216,8 +236,14 @@ final class SpeechSessionController {
     }
 
     private func restorePlaybackAudioSession() {
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
-        try? AVAudioSession.sharedInstance().setActive(true)
+        Task.detached {
+            try? AVAudioSession.sharedInstance().setCategory(
+                .playback,
+                mode: .default,
+                options: [.defaultToSpeaker, .allowBluetooth]
+            )
+            try? AVAudioSession.sharedInstance().setActive(true)
+        }
     }
 }
 
