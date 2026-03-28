@@ -128,10 +128,6 @@ private struct MainTabContainer: View {
             CapturePhotoPicker(
                 isPresented: $isShowingPhotoPicker,
                 onImagePicked: { image in
-                    capturesViewModel.captureFlowPhase = .processing
-                    capturesViewModel.isProcessingCapture = true
-                    capturesViewModel.pendingWord = nil
-                    capturesViewModel.pendingExtractedImage = nil
                     isShowingPhotoPicker = false
                     isShowingCaptureFlow = true
                     let info = CapturedImageInfo(image: image, previewSize: nil)

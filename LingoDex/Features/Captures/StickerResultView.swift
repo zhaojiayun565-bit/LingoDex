@@ -2,11 +2,13 @@ import SwiftUI
 import UIKit
 import AVFoundation
 
-/// Post-capture result: extracted object, translation, TTS, mic, Save/Cancel — with magical reveal sequencing.
+/// Post-capture: edge scan → Metal pixel dissolve on background → card + dot grid → reveal chrome.
 struct StickerResultView: View {
     let word: WordEntry
-    let extractedImage: UIImage
+    let extractedImage: UIImage?
+    let maskImage: UIImage?
     let capturedImageInfo: CapturedImageInfo?
+    let revealPhase: CaptureRevealPhase
     let deps: Dependencies
     let onSave: () -> Void
     let onDismiss: () -> Void
@@ -16,68 +18,174 @@ struct StickerResultView: View {
     @State private var isSaving = false
     @State private var isSpeaking = false
     @State private var isSpeakerPulsing = false
-    @State private var playReveal = 0
+    @State private var pixelDissolveProgress: CGFloat = 0
+
+    private var isPending: Bool {
+        word.learnWord == "Loading…" || word.learnWord == "Loading..."
+    }
 
     var body: some View {
-        ZStack {
-            DesignTokens.colors.background.ignoresSafeArea()
+        GeometryReader { geo in
+            let cardScale: CGFloat = (revealPhase == .morphing || revealPhase == .revealed) ? 0.85 : 1.0
+            let cardCorner: CGFloat = (revealPhase == .morphing || revealPhase == .revealed) ? 32 : 0
+            let dotOpacity: CGFloat = (revealPhase == .morphing || revealPhase == .revealed) ? 1 : 0
+            let cardSurfaceOpacity: CGFloat = (revealPhase == .morphing || revealPhase == .revealed) ? 1 : 0
 
-            KeyframeAnimator(initialValue: CGFloat(0), trigger: playReveal) { timeline in
-                revealedLayout(timeline: timeline)
-            } keyframes: { _ in
-                KeyframeTrack(\.self) {
-                    CubicKeyframe(0, duration: 0.02)
-                    CubicKeyframe(1, duration: 2.05)
+            ZStack {
+                Color.black.ignoresSafeArea()
+
+                DesignTokens.colors.background
+                    .ignoresSafeArea()
+                    .opacity(revealPhase == .scanning || revealPhase == .isolating ? 0 : 1)
+
+                DotGridBackground()
+                    .opacity(dotOpacity)
+                    .animation(.spring(response: 0.45, dampingFraction: 0.82), value: revealPhase)
+
+                if let capture = capturedImageInfo, revealPhase == .scanning || revealPhase == .isolating {
+                    Image(uiImage: capture.image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .clipped()
+                        .ignoresSafeArea()
+                        .layerEffect(
+                            ShaderLibrary.pixelateDissolve(.float(Float(pixelDissolveProgress))),
+                            maxSampleOffset: CGSize(width: 64, height: 64)
+                        )
                 }
+
+                VStack(spacing: 0) {
+                    if revealPhase == .revealed {
+                        topBar
+                    }
+                    Spacer(minLength: 12)
+                    ZStack {
+                        RoundedRectangle(cornerRadius: cardCorner, style: .continuous)
+                            .fill(Color.white)
+                            .opacity(cardSurfaceOpacity)
+                            .shadow(color: Color.black.opacity(0.06), radius: 20, y: 10)
+
+                        DotGridBackground()
+                            .clipShape(RoundedRectangle(cornerRadius: cardCorner, style: .continuous))
+                            .opacity(dotOpacity * 0.85)
+
+                        stickerHero(size: geo.size)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: cardCorner, style: .continuous))
+                    .padding(.horizontal, revealPhase == .scanning || revealPhase == .isolating ? 0 : 20)
+                    .scaleEffect(cardScale)
+                    .animation(.spring(response: 0.48, dampingFraction: 0.78), value: revealPhase)
+
+                    Spacer(minLength: 12)
+
+                    if revealPhase == .revealed {
+                        bottomChrome
+                            .transition(
+                                .move(edge: .bottom)
+                                    .combined(with: .scale(scale: 0.88))
+                                    .combined(with: .opacity)
+                            )
+                    }
+                }
+                .animation(.spring(response: 0.5, dampingFraction: 0.72), value: revealPhase)
+            }
+        }
+        .onChange(of: revealPhase) { _, new in
+            if new == .isolating {
+                pixelDissolveProgress = 0
+                withAnimation(.easeInOut(duration: 0.38)) {
+                    pixelDissolveProgress = 1
+                }
+            } else if new == .scanning {
+                pixelDissolveProgress = 0
+            }
+            if new == .revealed {
+                try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
+                try? AVAudioSession.sharedInstance().setActive(true)
             }
         }
         .onAppear {
-            try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
-            try? AVAudioSession.sharedInstance().setActive(true)
-            playReveal += 1
+            if revealPhase == .isolating {
+                pixelDissolveProgress = 0
+                DispatchQueue.main.async {
+                    withAnimation(.easeInOut(duration: 0.38)) {
+                        pixelDissolveProgress = 1
+                    }
+                }
+            }
         }
     }
 
     @ViewBuilder
-    private func revealedLayout(timeline t: CGFloat) -> some View {
-        let dissolve = min(1, max(0, t / 0.72))
-        let showBottomChrome = t >= 0.74
+    private func stickerHero(size: CGSize) -> some View {
+        let maxSticker: CGFloat = min(size.width * 0.88, 340)
 
         ZStack {
-            if let capture = capturedImageInfo {
-                Image(uiImage: capture.image)
-                    .resizable()
-                    .scaledToFill()
-                    .ignoresSafeArea()
-                    .layerEffect(
-                        ShaderLibrary.pixelateDissolve(.float(dissolve)),
-                        maxSampleOffset: CGSize(width: 64, height: 64)
-                    )
+            if revealPhase == .revealed, extractedImage != nil {
+                RadialGradient(
+                    colors: [
+                        DesignTokens.colors.primary.opacity(0.22),
+                        DesignTokens.colors.stickerGlow.opacity(0.12),
+                        Color.clear
+                    ],
+                    center: .center,
+                    startRadius: 20,
+                    endRadius: 160
+                )
+                .frame(width: maxSticker + 40, height: maxSticker + 40)
+                .opacity(1)
+                .animation(.easeOut(duration: 0.35), value: revealPhase)
             }
 
-            VStack(spacing: 0) {
-                topBar
-                Spacer(minLength: 24)
-                PhaseAnimator([CGFloat(0.97), CGFloat(1.0)], trigger: playReveal) { cardScale in
-                    mainCard(magicProgress: t)
-                        .scaleEffect(cardScale * (isSaving ? 0.6 : 1))
-                        .opacity(isSaving ? 0 : 1)
-                        .animation(.spring(response: 0.5, dampingFraction: 0.8), value: isSaving)
-                } animation: { _ in
-                    .spring(response: 0.42, dampingFraction: 0.72)
-                }
-                Spacer(minLength: 24)
-
+            if let img = extractedImage {
                 ZStack {
-                    if showBottomChrome {
-                        bottomChrome
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    if revealPhase == .scanning, let mask = maskImage {
+                        edgeScanOutline(mask: mask, maxWidth: maxSticker)
                     }
+                    Image(uiImage: img)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: maxSticker, maxHeight: maxSticker * 1.05)
+                        .shadow(
+                            color: revealPhase == .revealed ? Color.black.opacity(0.15) : .clear,
+                            radius: revealPhase == .revealed ? 15 : 0,
+                            x: 0,
+                            y: revealPhase == .revealed ? 10 : 0
+                        )
                 }
-                .animation(.spring(duration: 0.6, bounce: 0.4), value: showBottomChrome)
-
-                Spacer(minLength: 24)
             }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, revealPhase == .morphing || revealPhase == .revealed ? 28 : 40)
+    }
+
+    /// Razor rim using Vision mask + spinning angular wash.
+    private func edgeScanOutline(mask: UIImage, maxWidth: CGFloat) -> some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: false)) { ctx in
+            let angle = ctx.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 2.8) / 2.8 * 360
+
+            Image(uiImage: mask)
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .frame(width: maxWidth)
+                .foregroundStyle(
+                    AngularGradient(
+                        colors: [
+                            Color.clear,
+                            DesignTokens.colors.primary.opacity(0.15),
+                            DesignTokens.colors.primary,
+                            DesignTokens.colors.stickerGlow.opacity(0.55),
+                            DesignTokens.colors.primary.opacity(0.15),
+                            Color.clear
+                        ],
+                        center: .center,
+                        angle: .degrees(angle)
+                    )
+                )
+                .blur(radius: 0.8)
+                .allowsHitTesting(false)
         }
     }
 
@@ -117,27 +225,10 @@ struct StickerResultView: View {
         }
     }
 
-    private func mainCard(magicProgress: CGFloat) -> some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color.white)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .stroke(DesignTokens.colors.cardStroke, lineWidth: 1)
-                )
-                .frame(width: 290, height: 349)
-
-            MagicLiftView(image: extractedImage, magicProgress: magicProgress)
-                .frame(maxWidth: 260, maxHeight: 280)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .padding(24)
-        }
-    }
-
     private var bottomChrome: some View {
         VStack(spacing: 0) {
             wordLabels
-            Spacer(minLength: 40)
+            Spacer(minLength: 28)
             actionButtons
             Spacer(minLength: 24)
             SaveCancelButtons(
@@ -146,7 +237,7 @@ struct StickerResultView: View {
                 isSaveDisabled: isSaving
             )
             .padding(.horizontal, 20)
-            Spacer(minLength: 60)
+            Spacer(minLength: 48)
         }
     }
 
@@ -162,10 +253,6 @@ struct StickerResultView: View {
                 .foregroundStyle(DesignTokens.colors.capturesTextSecondary)
                 .multilineTextAlignment(.center)
         }
-    }
-
-    private var isPending: Bool {
-        word.learnWord == "Loading…" || word.learnWord == "Loading..."
     }
 
     private var actionButtons: some View {
@@ -213,7 +300,7 @@ struct StickerResultView: View {
             isSpeakerPulsing = true
             do {
                 try await deps.tts.speak(word.learnWord, language: .currentLearning)
-            } catch { /* ignore */ }
+            } catch { }
             await MainActor.run {
                 isSpeakerPulsing = false
                 isSpeaking = false
