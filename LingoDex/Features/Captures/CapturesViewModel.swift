@@ -19,6 +19,8 @@ enum CaptureFlowPhase: Equatable {
     var captureFlowPhase: CaptureFlowPhase = .camera
     var pendingWord: WordEntry?
     var pendingExtractedImage: UIImage?
+    /// Full capture shown during processing + result dissolve (cleared on save/dismiss).
+    var pendingCapturedImageInfo: CapturedImageInfo?
 
     // MARK: Story Mode
     var isStorySheetPresented: Bool = false
@@ -77,6 +79,7 @@ enum CaptureFlowPhase: Equatable {
 
     /// Processes captured image: subject lift and Gemini run in parallel when online. Shows result when both complete.
     func processCapturedImage(_ info: CapturedImageInfo) async {
+        pendingCapturedImageInfo = info
         setCaptureFlowState(
             phase: .processing,
             isProcessing: true,
@@ -206,6 +209,7 @@ enum CaptureFlowPhase: Equatable {
             // Fail silently for MVP.
         }
 
+        pendingCapturedImageInfo = nil
         setCaptureFlowState(
             phase: .camera,
             isProcessing: false,
@@ -218,6 +222,7 @@ enum CaptureFlowPhase: Equatable {
 
     /// Discards pending capture without saving.
     func dismissPending() {
+        pendingCapturedImageInfo = nil
         setCaptureFlowState(
             phase: .camera,
             isProcessing: false,

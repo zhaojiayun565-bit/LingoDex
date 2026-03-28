@@ -2,10 +2,11 @@ import SwiftUI
 import UIKit
 import AVFoundation
 
-/// Post-capture result: extracted object, translation, TTS, mic, Save/Cancel. Layout matches WordDetailView.
+/// Post-capture result: extracted object, translation, TTS, mic, Save/Cancel — with magical reveal sequencing.
 struct StickerResultView: View {
     let word: WordEntry
     let extractedImage: UIImage
+    let capturedImageInfo: CapturedImageInfo?
     let deps: Dependencies
     let onSave: () -> Void
     let onDismiss: () -> Void
@@ -15,41 +16,67 @@ struct StickerResultView: View {
     @State private var isSaving = false
     @State private var isSpeaking = false
     @State private var isSpeakerPulsing = false
-    @State private var appearScale: CGFloat = 0.92
-    @State private var appearOpacity: Double = 0
+    @State private var playReveal = 0
 
     var body: some View {
         ZStack {
             DesignTokens.colors.background.ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                topBar
-                Spacer(minLength: 24)
-                mainCard
-                    .scaleEffect(isSaving ? 0.6 : appearScale)
-                    .opacity(isSaving ? 0 : appearOpacity)
-                    .animation(.spring(response: 0.5, dampingFraction: 0.8), value: appearScale)
-                    .animation(.easeOut(duration: 0.35), value: isSaving)
-                Spacer(minLength: 24)
-                wordLabels
-                Spacer(minLength: 40)
-                actionButtons
-                Spacer(minLength: 24)
-                SaveCancelButtons(
-                    onSave: saveAndAnimate,
-                    onCancel: nil,
-                    isSaveDisabled: isSaving
-                )
-                .padding(.horizontal, 20)
-                Spacer(minLength: 60)
+            KeyframeAnimator(initialValue: CGFloat(0), trigger: playReveal) { timeline in
+                revealedLayout(timeline: timeline)
+            } keyframes: { _ in
+                KeyframeTrack(\.self) {
+                    CubicKeyframe(0, duration: 0.02)
+                    CubicKeyframe(1, duration: 2.05)
+                }
             }
         }
         .onAppear {
             try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
             try? AVAudioSession.sharedInstance().setActive(true)
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-                appearScale = 1.0
-                appearOpacity = 1
+            playReveal += 1
+        }
+    }
+
+    @ViewBuilder
+    private func revealedLayout(timeline t: CGFloat) -> some View {
+        let dissolve = min(1, max(0, t / 0.72))
+        let showBottomChrome = t >= 0.74
+
+        ZStack {
+            if let capture = capturedImageInfo {
+                Image(uiImage: capture.image)
+                    .resizable()
+                    .scaledToFill()
+                    .ignoresSafeArea()
+                    .layerEffect(
+                        ShaderLibrary.pixelateDissolve(.float(dissolve)),
+                        maxSampleOffset: CGSize(width: 64, height: 64)
+                    )
+            }
+
+            VStack(spacing: 0) {
+                topBar
+                Spacer(minLength: 24)
+                PhaseAnimator([CGFloat(0.97), CGFloat(1.0)], trigger: playReveal) { cardScale in
+                    mainCard(magicProgress: t)
+                        .scaleEffect(cardScale * (isSaving ? 0.6 : 1))
+                        .opacity(isSaving ? 0 : 1)
+                        .animation(.spring(response: 0.5, dampingFraction: 0.8), value: isSaving)
+                } animation: { _ in
+                    .spring(response: 0.42, dampingFraction: 0.72)
+                }
+                Spacer(minLength: 24)
+
+                ZStack {
+                    if showBottomChrome {
+                        bottomChrome
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+                .animation(.spring(duration: 0.6, bounce: 0.4), value: showBottomChrome)
+
+                Spacer(minLength: 24)
             }
         }
     }
@@ -90,7 +117,7 @@ struct StickerResultView: View {
         }
     }
 
-    private var mainCard: some View {
+    private func mainCard(magicProgress: CGFloat) -> some View {
         ZStack {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .fill(Color.white)
@@ -100,14 +127,29 @@ struct StickerResultView: View {
                 )
                 .frame(width: 290, height: 349)
 
-            MagicLiftView(image: extractedImage)
+            MagicLiftView(image: extractedImage, magicProgress: magicProgress)
                 .frame(maxWidth: 260, maxHeight: 280)
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .padding(24)
         }
     }
 
-    /// Learning language (top), native language (below). Shows "Loading…" / "Pending" when recognition queued.
+    private var bottomChrome: some View {
+        VStack(spacing: 0) {
+            wordLabels
+            Spacer(minLength: 40)
+            actionButtons
+            Spacer(minLength: 24)
+            SaveCancelButtons(
+                onSave: saveAndAnimate,
+                onCancel: nil,
+                isSaveDisabled: isSaving
+            )
+            .padding(.horizontal, 20)
+            Spacer(minLength: 60)
+        }
+    }
+
     private var wordLabels: some View {
         VStack(spacing: 16) {
             Text(word.learnWord)
