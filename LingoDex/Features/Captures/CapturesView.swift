@@ -155,7 +155,9 @@ struct CapturesView: View {
     private func sessionSection(_ session: CaptureSession) -> some View {
         let title = session.date.formatted(.dateTime.month(.wide).day())
         return VStack(alignment: .leading, spacing: DesignTokens.layout.capturesDateSectionSpacing) {
-            VStack(alignment: .leading, spacing: DesignTokens.layout.capturesDateSectionSpacing) {
+
+            // Header
+            VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(CaptureTypography.dateTitle())
                     .foregroundStyle(DesignTokens.colors.capturesTextPrimary)
@@ -163,33 +165,29 @@ struct CapturesView: View {
                     .font(CaptureTypography.captureCount())
                     .foregroundStyle(DesignTokens.colors.capturesTextSecondary)
             }
+            .padding(.horizontal, 8) // Keep text slightly padded from the screen edge
 
-            VStack(alignment: .leading, spacing: 0) {
-                LazyVGrid(
-                    columns: captureGridColumns,
-                    spacing: DesignTokens.layout.capturesGridSpacing
-                ) {
-                    ForEach(session.words) { word in
-                        WordCard(word: word, heroNamespace: heroAnimation) {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
-                                selectedWord = word
-                            }
+            // Floating Grid
+            LazyVGrid(
+                columns: captureGridColumns,
+                spacing: DesignTokens.layout.capturesGridSpacing
+            ) {
+                ForEach(session.words) { word in
+                    WordCard(word: word, heroNamespace: heroAnimation) {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+                            selectedWord = word
                         }
-                        .transition(.asymmetric(
-                            insertion: .scale(scale: 0.95).combined(with: .opacity),
-                            removal: .opacity
-                        ))
                     }
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.95).combined(with: .opacity),
+                        removal: .opacity
+                    ))
                 }
-                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: session.words.count)
             }
-            .padding(DesignTokens.layout.capturesCardInnerPadding)
-            .frame(maxWidth: .infinity)
-            .background(Color.white)
-            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.layout.capturesCardCornerRadius, style: .continuous))
-            .shadow(color: .black.opacity(0.06), radius: 12, x: 0, y: 4)
+            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: session.words.count)
         }
+        // REMOVED: .background(Color.white), .clipShape, and .shadow from here
     }
 
     /// Figma uses 2 columns on phone; more columns on regular width (iPad).
@@ -260,19 +258,19 @@ private struct WordCard: View {
 
     var body: some View {
         Button(action: onTap) {
-            // Use negative spacing to pull the text bubble slightly over the image
-            VStack(spacing: -12) {
+            // Pull text into the image slightly
+            VStack(spacing: -8) {
                 Group {
                     if let thumbnailData = word.thumbnailData, let uiImage = UIImage(data: thumbnailData) {
                         Image(uiImage: uiImage)
                             .resizable()
                             .renderingMode(.original)
                             .scaledToFit()
-                            // Fakes a white sticker outline by layering shadows
-                            .shadow(color: .white, radius: 1, x: 1, y: 1)
-                            .shadow(color: .white, radius: 1, x: -1, y: -1)
-                            .shadow(color: .white, radius: 1, x: 1, y: -1)
-                            .shadow(color: .white, radius: 1, x: -1, y: 1)
+                            // Stack tight shadows to create a solid white stroke around the transparent image
+                            .shadow(color: .white, radius: 1)
+                            .shadow(color: .white, radius: 1)
+                            .shadow(color: .white, radius: 1)
+                            .shadow(color: .white, radius: 1)
                     } else {
                         Image(systemName: "photo")
                             .font(.system(size: 28, weight: .regular))
@@ -281,22 +279,53 @@ private struct WordCard: View {
                     }
                 }
                 .matchedGeometryEffect(id: word.id, in: heroNamespace)
-                .frame(maxWidth: .infinity)
-                .frame(height: 110) // Give it a fixed height instead of a 1:1 ratio
+                // We REMOVED the fixed height here so the image scales naturally!
 
-                // The text label acting as the bottom of the sticker
-                Text(word.learnWord)
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
-                    .foregroundStyle(DesignTokens.colors.capturesTextPrimary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(Color.white)
-                    .clipShape(Capsule())
-                    .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
-                    .zIndex(1) // Ensures the text sits on top of the image
+                // Our new text-hugging sticker label
+                StickerText(
+                    text: word.learnWord,
+                    font: .system(size: 16, weight: .bold, design: .rounded),
+                    color: DesignTokens.colors.capturesTextPrimary,
+                    outlineColor: .white,
+                    outlineWidth: 2.5
+                )
+                .zIndex(1)
             }
+            // Add one subtle drop shadow to the entire sticker (image + text)
+            .shadow(color: .black.opacity(0.15), radius: 4, x: 0, y: 3)
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct StickerText: View {
+    let text: String
+    let font: Font
+    let color: Color
+    let outlineColor: Color
+    let outlineWidth: CGFloat
+
+    var body: some View {
+        ZStack {
+            // Draw the white outline by offsetting the text in a circle
+            Group {
+                Text(text).offset(x: outlineWidth, y: outlineWidth)
+                Text(text).offset(x: -outlineWidth, y: -outlineWidth)
+                Text(text).offset(x: outlineWidth, y: -outlineWidth)
+                Text(text).offset(x: -outlineWidth, y: outlineWidth)
+                Text(text).offset(x: outlineWidth, y: 0)
+                Text(text).offset(x: -outlineWidth, y: 0)
+                Text(text).offset(x: 0, y: outlineWidth)
+                Text(text).offset(x: 0, y: -outlineWidth)
+            }
+            .font(font)
+            .foregroundColor(outlineColor)
+
+            // The actual foreground text
+            Text(text)
+                .font(font)
+                .foregroundColor(color)
+        }
     }
 }
