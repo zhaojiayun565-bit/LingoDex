@@ -253,7 +253,6 @@ private func matchesFuzzySearch(_ word: WordEntry, query: String) -> Bool {
     return tokens.allSatisfy { token in blob.contains(token) }
 }
 
-/// Figma-style cell: transparent cutout image, term below — no border, no chrome.
 private struct WordCard: View {
     let word: WordEntry
     var heroNamespace: Namespace.ID
@@ -261,33 +260,40 @@ private struct WordCard: View {
 
     var body: some View {
         Button(action: onTap) {
-            VStack(spacing: 10) {
-                ZStack {
-                    Color.clear
-                    Group {
-                        if let thumbnailData = word.thumbnailData, let uiImage = UIImage(data: thumbnailData) {
-                            Image(uiImage: uiImage)
-                                .resizable()
-                                .renderingMode(.original)
-                                .scaledToFit()
-                        } else {
-                            Image(systemName: "photo")
-                                .font(.system(size: 28, weight: .regular))
-                                .foregroundStyle(DesignTokens.colors.capturesTextSecondary.opacity(0.5))
-                        }
+            // Use negative spacing to pull the text bubble slightly over the image
+            VStack(spacing: -12) {
+                Group {
+                    if let thumbnailData = word.thumbnailData, let uiImage = UIImage(data: thumbnailData) {
+                        Image(uiImage: uiImage)
+                            .resizable()
+                            .renderingMode(.original)
+                            .scaledToFit()
+                            // Fakes a white sticker outline by layering shadows
+                            .shadow(color: .white, radius: 1, x: 1, y: 1)
+                            .shadow(color: .white, radius: 1, x: -1, y: -1)
+                            .shadow(color: .white, radius: 1, x: 1, y: -1)
+                            .shadow(color: .white, radius: 1, x: -1, y: 1)
+                    } else {
+                        Image(systemName: "photo")
+                            .font(.system(size: 28, weight: .regular))
+                            .foregroundStyle(DesignTokens.colors.capturesTextSecondary.opacity(0.5))
+                            .frame(height: 100)
                     }
                 }
                 .matchedGeometryEffect(id: word.id, in: heroNamespace)
-                .aspectRatio(1, contentMode: .fit)
                 .frame(maxWidth: .infinity)
+                .frame(height: 110) // Give it a fixed height instead of a 1:1 ratio
 
+                // The text label acting as the bottom of the sticker
                 Text(word.learnWord)
-                    .font(CaptureTypography.wordLabel())
-                    .foregroundStyle(DesignTokens.colors.capturesLabel)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.85)
-                    .frame(maxWidth: .infinity)
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(DesignTokens.colors.capturesTextPrimary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.white)
+                    .clipShape(Capsule())
+                    .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
+                    .zIndex(1) // Ensures the text sits on top of the image
             }
             .frame(maxWidth: .infinity)
         }

@@ -30,8 +30,6 @@ struct StickerResultView: View {
                     .opacity(isSaving ? 0 : appearOpacity)
                     .animation(.spring(response: 0.5, dampingFraction: 0.8), value: appearScale)
                     .animation(.easeOut(duration: 0.35), value: isSaving)
-                Spacer(minLength: 24)
-                wordLabels
                 Spacer(minLength: 40)
                 actionButtons
                 Spacer(minLength: 24)
@@ -91,41 +89,36 @@ struct StickerResultView: View {
     }
 
     private var mainCard: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color.white)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .stroke(DesignTokens.colors.cardStroke, lineWidth: 1)
-                )
-                .frame(width: 290, height: 349)
-
+        VStack(spacing: -16) { // Pulls the text up into the sticker
             MagicLiftView(image: extractedImage)
                 .frame(maxWidth: 260, maxHeight: 280)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .padding(24)
-        }
-    }
+                .padding(.bottom, 16)
 
-    /// Learning language (top), native language (below). Shows "Loading…" / "Pending" when recognition queued.
-    private var wordLabels: some View {
-        VStack(spacing: 16) {
-            Text(word.learnWord)
-                .font(CaptureTypography.detailWordTitle())
-                .foregroundStyle(isPending ? DesignTokens.colors.capturesTextSecondary : DesignTokens.colors.capturesTextPrimary)
-                .multilineTextAlignment(.center)
+            // Wrap the labels in a sticker-like bubble
+            VStack(spacing: 4) {
+                Text(word.learnWord)
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .foregroundStyle(isPending ? DesignTokens.colors.capturesTextSecondary : DesignTokens.colors.capturesTextPrimary)
+                    .multilineTextAlignment(.center)
 
-            if let phonetic = word.phoneticBreakdown, !phonetic.isEmpty {
-                Text(phonetic)
+                if let phonetic = word.phoneticBreakdown, !phonetic.isEmpty {
+                    Text(phonetic)
+                        .font(CaptureTypography.detailPhonetic())
+                        .foregroundStyle(DesignTokens.colors.primary)
+                        .multilineTextAlignment(.center)
+                }
+
+                Text(word.nativeWord)
                     .font(CaptureTypography.detailPhonetic())
-                    .foregroundStyle(DesignTokens.colors.primary)
+                    .foregroundStyle(DesignTokens.colors.capturesTextSecondary)
                     .multilineTextAlignment(.center)
             }
-
-            Text(word.nativeWord)
-                .font(CaptureTypography.detailPhonetic())
-                .foregroundStyle(DesignTokens.colors.capturesTextSecondary)
-                .multilineTextAlignment(.center)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 12)
+            .background(Color.white)
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 4)
+            .zIndex(1)
         }
     }
 
