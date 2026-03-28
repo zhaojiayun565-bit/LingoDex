@@ -2,12 +2,14 @@ import SwiftUI
 import UIKit
 import AudioToolbox
 
-/// Detail view when user taps a capture card. Figma layout with 3D flip, TTS, inline pronunciation test.
+/// Detail view when user taps a capture card. Figma layout, hero image match, swipe-to-dismiss, TTS, mic check.
 struct WordDetailView: View {
     let deps: Dependencies
     @Bindable var viewModel: CapturesViewModel
     let initialWord: WordEntry
     let onDismiss: () -> Void
+    /// When set, image animates from the grid card via `matchedGeometryEffect`.
+    var heroNamespace: Namespace.ID? = nil
 
     private var displayedWord: WordEntry {
         viewModel.sessions.flatMap(\.words).first { $0.id == initialWord.id } ?? initialWord
@@ -18,8 +20,8 @@ struct WordDetailView: View {
     }
 
     @State private var image: UIImage?
+    @State private var dragOffset: CGSize = .zero
 
-    @State private var flipDegrees: Double = 90
     @State private var isSpeaking = false
     @State private var isSpeakerPulsing = false
 
@@ -55,6 +57,27 @@ struct WordDetailView: View {
                 Spacer(minLength: 60)
             }
         }
+        .offset(y: max(0, dragOffset.height))
+        .scaleEffect(1.0 - (max(0, dragOffset.height) / 1000.0))
+        .opacity(1.0 - (max(0, dragOffset.height) / 800.0))
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    if value.translation.height > 0 {
+                        dragOffset = value.translation
+                    }
+                }
+                .onEnded { value in
+                    if value.translation.height > 100 {
+                        speech.stopByUser()
+                        onDismiss()
+                    } else {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            dragOffset = .zero
+                        }
+                    }
+                }
+        )
         .task(id: displayedWord.imageFileName) {
             do {
                 image = try await deps.imageLoader.loadFullImage(fileName: displayedWord.imageFileName)
@@ -64,9 +87,6 @@ struct WordDetailView: View {
         }
         .onAppear {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            withAnimation(.spring(response: 0.55, dampingFraction: 0.82)) {
-                flipDegrees = 0
-            }
         }
         .onDisappear {
             speech.stopByUser()
@@ -145,26 +165,27 @@ struct WordDetailView: View {
                         .stroke(DesignTokens.colors.cardStroke, lineWidth: 1)
                 )
                 .frame(width: 290, height: 349)
-                .rotation3DEffect(.degrees(flipDegrees), axis: (x: 0, y: 1, z: 0), perspective: 0.5)
 
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: 260, maxHeight: 280)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .padding(24)
-            } else {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.white)
-                    .overlay(
-                        Image(systemName: "photo")
-                            .font(.system(size: 48))
-                            .foregroundStyle(DesignTokens.colors.capturesTextSecondary.opacity(0.5))
-                    )
-                    .frame(width: 260, height: 280)
-                    .padding(24)
+            Group {
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: 260, maxHeight: 280)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                } else {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color.white)
+                        .overlay(
+                            Image(systemName: "photo")
+                                .font(.system(size: 48))
+                                .foregroundStyle(DesignTokens.colors.capturesTextSecondary.opacity(0.5))
+                        )
+                        .frame(width: 260, height: 280)
+                }
             }
+            .padding(24)
+            .applyHeroMatch(id: displayedWord.id, namespace: heroNamespace)
         }
     }
 
@@ -174,6 +195,13 @@ struct WordDetailView: View {
                 .font(CaptureTypography.detailWordTitle())
                 .foregroundStyle(DesignTokens.colors.capturesTextPrimary)
                 .multilineTextAlignment(.center)
+
+            if let phonetic = displayedWord.phoneticBreakdown, !phonetic.isEmpty {
+                Text(phonetic)
+                    .font(CaptureTypography.detailPhonetic())
+                    .foregroundStyle(DesignTokens.colors.primary)
+                    .multilineTextAlignment(.center)
+            }
 
             Text(displayedWord.nativeWord)
                 .font(CaptureTypography.detailPhonetic())
@@ -282,13 +310,8 @@ struct WordDetailView: View {
     }
 
     private func dismissWithFlip() {
-        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
-            flipDegrees = 90
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-            speech.stopByUser()
-            onDismiss()
-        }
+        speech.stopByUser()
+        onDismiss()
     }
 
     private func performEdit(learnWord: String, nativeWord: String) {
@@ -386,5 +409,16 @@ struct WordDetailView: View {
             }
         }
         return d[a.count][b.count]
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func applyHeroMatch(id: UUID, namespace: Namespace.ID?) -> some View {
+        if let namespace {
+            matchedGeometryEffect(id: id, in: namespace)
+        } else {
+            self
+        }
     }
 }

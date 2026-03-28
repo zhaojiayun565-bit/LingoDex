@@ -9,6 +9,7 @@ final class CapturedWordEntity {
     var imageFileName: String
     var learnWord: String
     var nativeWord: String
+    var phoneticBreakdown: String?
     var recognizedEnglish: String
     var srsRatingRaw: String
     var srsNextDueDate: Date?
@@ -34,6 +35,7 @@ final class CapturedWordEntity {
         imageFileName: String,
         learnWord: String,
         nativeWord: String,
+        phoneticBreakdown: String? = nil,
         recognizedEnglish: String,
         srsRatingRaw: String = SRSRating.good.rawValue,
         srsNextDueDate: Date? = nil,
@@ -54,6 +56,7 @@ final class CapturedWordEntity {
         self.imageFileName = imageFileName
         self.learnWord = learnWord
         self.nativeWord = nativeWord
+        self.phoneticBreakdown = phoneticBreakdown
         self.recognizedEnglish = recognizedEnglish
         self.srsRatingRaw = srsRatingRaw
         self.srsNextDueDate = srsNextDueDate
@@ -98,6 +101,7 @@ final class CapturedWordEntity {
             recognizedEnglish: recognizedEnglish,
             learnWord: learnWord,
             nativeWord: nativeWord,
+            phoneticBreakdown: phoneticBreakdown,
             createdAt: createdAt,
             srs: srs,
             thumbnailData: thumbnailData

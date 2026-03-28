@@ -24,6 +24,7 @@ interface RequestBody {
 interface GeminiResponse {
   object_name: string | null;
   target_translation: string;
+  phonetic_breakdown: string | null;
   category: string;
   confidence: number;
   example_sentences: string[];
@@ -46,6 +47,7 @@ Your goal is to identify a specific object within a provided image and generate 
 3. Return the following data in a strictly formatted JSON object:
    - "object_name": The name of the item in ${nativeLanguage}.
    - "target_translation": The name of the item in ${learningLanguage}.
+   - "phonetic_breakdown": The phonetic pronunciation of the target_translation (e.g., Romaji for Japanese, Pinyin for Mandarin, IPA for French/Spanish, or null if ${learningLanguage} is English or if not applicable).
    - "category": (e.g., Furniture, Nature, Kitchen).
    - "confidence": Your certainty score from 0.0 to 1.0.
    - "example_sentences": An array of TWO simple, beginner-level sentences in ${learningLanguage}.

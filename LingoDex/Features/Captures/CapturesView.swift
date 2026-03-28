@@ -11,6 +11,7 @@ struct CapturesView: View {
     @State private var isShowingSortOptions = false
     @State private var sortOrder: SessionSortOrder = .mostRecent
     @State private var selectedWord: WordEntry?
+    @Namespace private var heroAnimation
 
     init(deps: Dependencies, appViewModel: AppViewModel, capturesViewModel: CapturesViewModel) {
         self.deps = deps
@@ -22,40 +23,59 @@ struct CapturesView: View {
         if appViewModel.authUser == nil {
             lockedState
         } else {
-            NavigationStack {
-                ZStack {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: DesignTokens.layout.capturesSectionSpacing) {
-                            content
+            ZStack {
+                NavigationStack {
+                    ZStack {
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: DesignTokens.layout.capturesSectionSpacing) {
+                                content
+                            }
+                            .padding(.horizontal, DesignTokens.layout.capturesHorizontalPadding)
+                            .padding(.top, 4)
+                            .padding(.bottom, 100)
                         }
-                    .padding(.horizontal, DesignTokens.layout.capturesHorizontalPadding)
-                    .padding(.top, 4)
-                    .padding(.bottom, 100)
-                }
-                .safeAreaPadding(.top, 8)
+                        .safeAreaPadding(.top, 8)
 
-                    if capturesViewModel.isProcessingCapture {
-                        Color.black.opacity(0.2).ignoresSafeArea()
-                        ProgressView("Processing...")
-                            .padding(14)
-                            .background(Color.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        if capturesViewModel.isProcessingCapture {
+                            Color.black.opacity(0.2).ignoresSafeArea()
+                            ProgressView("Processing...")
+                                .padding(14)
+                                .background(Color.white)
+                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
+                    }
+                    .navigationTitle("Captures")
+                    .navigationBarTitleDisplayMode(.large)
+                    .searchable(text: $searchText, prompt: "Search words")
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button {
+                                isShowingSortOptions = true
+                            } label: {
+                                Image(systemName: "line.3.horizontal.decrease.circle")
+                            }
+                            .accessibilityLabel("Sort order")
+                        }
                     }
                 }
-                .navigationTitle("Captures")
-                .navigationBarTitleDisplayMode(.large)
-                .searchable(text: $searchText, prompt: "Search words")
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            isShowingSortOptions = true
-                        } label: {
-                            Image(systemName: "line.3.horizontal.decrease.circle")
-                        }
-                        .accessibilityLabel("Sort order")
-                    }
+
+                if let word = selectedWord {
+                    WordDetailView(
+                        deps: deps,
+                        viewModel: capturesViewModel,
+                        initialWord: word,
+                        onDismiss: {
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                                selectedWord = nil
+                            }
+                        },
+                        heroNamespace: heroAnimation
+                    )
+                    .transition(.scale.combined(with: .opacity))
+                    .zIndex(1)
                 }
             }
+            .animation(.spring(response: 0.42, dampingFraction: 0.86), value: selectedWord?.id)
             .confirmationDialog("Sort captures", isPresented: $isShowingSortOptions, titleVisibility: .visible) {
                 Button(SessionSortOrder.mostRecent.title) { sortOrder = .mostRecent }
                 Button(SessionSortOrder.leastRecent.title) { sortOrder = .leastRecent }
@@ -68,14 +88,6 @@ struct CapturesView: View {
                 )
             ) {
                 StoryBottomSheet(deps: deps, viewModel: capturesViewModel)
-            }
-            .fullScreenCover(item: $selectedWord) { word in
-                WordDetailView(
-                    deps: deps,
-                    viewModel: capturesViewModel,
-                    initialWord: word,
-                    onDismiss: { selectedWord = nil }
-                )
             }
             .onChange(of: capturesViewModel.sessions) { _, sessions in
                 let missingIDs = sessions
@@ -158,9 +170,11 @@ struct CapturesView: View {
                     spacing: DesignTokens.layout.capturesGridSpacing
                 ) {
                     ForEach(session.words) { word in
-                        WordCard(word: word) {
+                        WordCard(word: word, heroNamespace: heroAnimation) {
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            selectedWord = word
+                            withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+                                selectedWord = word
+                            }
                         }
                         .transition(.asymmetric(
                             insertion: .scale(scale: 0.95).combined(with: .opacity),
@@ -242,6 +256,7 @@ private func matchesFuzzySearch(_ word: WordEntry, query: String) -> Bool {
 /// Figma-style cell: transparent cutout image, term below — no border, no chrome.
 private struct WordCard: View {
     let word: WordEntry
+    var heroNamespace: Namespace.ID
     var onTap: () -> Void = {}
 
     var body: some View {
@@ -262,6 +277,7 @@ private struct WordCard: View {
                         }
                     }
                 }
+                .matchedGeometryEffect(id: word.id, in: heroNamespace)
                 .aspectRatio(1, contentMode: .fit)
                 .frame(maxWidth: .infinity)
 

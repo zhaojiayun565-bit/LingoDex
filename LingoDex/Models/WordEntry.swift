@@ -6,6 +6,7 @@ struct WordEntry: Sendable, Codable, Identifiable, Equatable {
     let recognizedEnglish: String
     let learnWord: String
     let nativeWord: String
+    var phoneticBreakdown: String? = nil
     let createdAt: Date
     var srs: SRSCardState
     var thumbnailData: Data? = nil

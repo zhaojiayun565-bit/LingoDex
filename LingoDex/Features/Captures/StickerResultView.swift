@@ -115,6 +115,13 @@ struct StickerResultView: View {
                 .foregroundStyle(isPending ? DesignTokens.colors.capturesTextSecondary : DesignTokens.colors.capturesTextPrimary)
                 .multilineTextAlignment(.center)
 
+            if let phonetic = word.phoneticBreakdown, !phonetic.isEmpty {
+                Text(phonetic)
+                    .font(CaptureTypography.detailPhonetic())
+                    .foregroundStyle(DesignTokens.colors.primary)
+                    .multilineTextAlignment(.center)
+            }
+
             Text(word.nativeWord)
                 .font(CaptureTypography.detailPhonetic())
                 .foregroundStyle(DesignTokens.colors.capturesTextSecondary)

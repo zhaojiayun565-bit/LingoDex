@@ -63,11 +63,19 @@ final class RecognitionSyncService {
             let nativeWord = result.objectName ?? result.targetTranslation
             let recognizedEnglish = result.targetTranslation
 
+            let phonetic: String? = {
+                guard let p = result.phoneticBreakdown?.trimmingCharacters(in: .whitespacesAndNewlines), !p.isEmpty else {
+                    return nil
+                }
+                return p
+            }()
+
             try captureStore.updateWithRecognitionResult(
                 id: entity.id,
                 learnWord: learnWord,
                 nativeWord: nativeWord,
                 recognizedEnglish: recognizedEnglish,
+                phoneticBreakdown: phonetic,
                 category: result.category.isEmpty ? nil : result.category,
                 exampleSentencesJSON: try? JSONEncoder().encode(result.exampleSentences),
                 confidence: result.confidence,

@@ -91,13 +91,13 @@ enum CaptureFlowPhase: Equatable {
         let image = info.image
         let normalizedBBox = info.normalizedBBoxString
         let learningLang = Language.currentLearning.rawValue
-        let nativeLang = Self.languageFromSystem().rawValue
+        let nativeLang = UserDefaults.standard.string(forKey: "lingodex_native_language") ?? Language.english.rawValue
         let wordId = UUID()
         let imageFileName = "\(wordId).png"
 
         // Run subject lift and Gemini recognition in parallel when online.
         let sticker: UIImage
-        let recognitionResult: (learnWord: String, nativeWord: String, recognizedEnglish: String)?
+        let recognitionResult: GeminiRecognitionResult?
 
         if deps.networkMonitor.isReachable {
             async let stickerTask = deps.subjectLift.extractSticker(from: image)
@@ -111,15 +111,7 @@ enum CaptureFlowPhase: Equatable {
             let stickerResult = try? await stickerTask
             sticker = stickerResult ?? image
 
-            if let result = try? await recognitionTask {
-                recognitionResult = (
-                    result.targetTranslation,
-                    result.objectName ?? result.targetTranslation,
-                    result.targetTranslation
-                )
-            } else {
-                recognitionResult = nil
-            }
+            recognitionResult = try? await recognitionTask
         } else {
             // Offline: sticker only, queue for sync.
             if let s = try? await deps.subjectLift.extractSticker(from: image) {
@@ -135,9 +127,10 @@ enum CaptureFlowPhase: Equatable {
             let nextWord = WordEntry(
                 id: wordId,
                 imageFileName: imageFileName,
-                recognizedEnglish: r.recognizedEnglish,
-                learnWord: r.learnWord,
-                nativeWord: r.nativeWord,
+                recognizedEnglish: r.targetTranslation,
+                learnWord: r.targetTranslation,
+                nativeWord: r.objectName ?? r.targetTranslation,
+                phoneticBreakdown: Self.nonEmptyOptionalString(r.phoneticBreakdown),
                 createdAt: Date(),
                 srs: SRSCardState()
             )
@@ -184,6 +177,7 @@ enum CaptureFlowPhase: Equatable {
                 imageFileName: word.imageFileName,
                 learnWord: word.learnWord,
                 nativeWord: word.nativeWord,
+                phoneticBreakdown: word.phoneticBreakdown,
                 recognizedEnglish: word.recognizedEnglish,
                 srsRatingRaw: word.srs.rating.rawValue,
                 srsNextDueDate: word.srs.nextDueDate,
@@ -278,17 +272,10 @@ enum CaptureFlowPhase: Equatable {
         }
     }
 
-    private static func languageFromSystem() -> Language {
-        guard let code = Locale.current.languageCode else { return .english }
-        switch code.lowercased() {
-        case "fr": return .french
-        case "es": return .spanish
-        case "ja": return .japanese
-        case "ko": return .korean
-        case "zh": return .mandarinChinese
-        case "en": fallthrough
-        default: return .english
-        }
+    private static func nonEmptyOptionalString(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func prepareStoryIfNeeded() {

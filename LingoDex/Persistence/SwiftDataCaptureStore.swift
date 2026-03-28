@@ -142,6 +142,7 @@ final class SwiftDataCaptureStore {
         learnWord: String,
         nativeWord: String,
         recognizedEnglish: String,
+        phoneticBreakdown: String?,
         category: String?,
         exampleSentencesJSON: Data?,
         confidence: Double,
@@ -150,6 +151,7 @@ final class SwiftDataCaptureStore {
         guard let entity = fetchEntity(by: id) else { return }
         entity.learnWord = learnWord
         entity.nativeWord = nativeWord
+        entity.phoneticBreakdown = phoneticBreakdown
         entity.recognizedEnglish = recognizedEnglish
         entity.recognitionStatusRaw = RecognitionStatus.ready.rawValue
         entity.category = category
