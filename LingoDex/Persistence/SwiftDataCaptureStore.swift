@@ -238,15 +238,28 @@ final class SwiftDataCaptureStore {
         }.value
     }
 
+    /// Downscales for storage; uses oriented pixel size (`size` × `scale`) so the draw rect matches `UIImage.draw(in:)` when `imageOrientation` is not `.up` (e.g. camera stickers from subject lift).
     private static func thumbnailData(from image: UIImage, maxPixelSize: Int) -> Data? {
-        guard let sourceCGImage = image.cgImage else { return image.pngData() }
-        let width = sourceCGImage.width
-        let height = sourceCGImage.height
-        let maxDimension = max(width, height)
-        let scale = min(1.0, CGFloat(maxPixelSize) / CGFloat(maxDimension))
+        guard let cg = image.cgImage else { return image.pngData() }
+
+        let pixelWidth = image.size.width * image.scale
+        let pixelHeight = image.size.height * image.scale
+        let basisW: CGFloat
+        let basisH: CGFloat
+        if pixelWidth > 0, pixelHeight > 0, pixelWidth.isFinite, pixelHeight.isFinite {
+            basisW = pixelWidth
+            basisH = pixelHeight
+        } else {
+            basisW = CGFloat(cg.width)
+            basisH = CGFloat(cg.height)
+        }
+
+        let maxDimension = max(basisW, basisH)
+        guard maxDimension > 0, maxDimension.isFinite else { return image.pngData() }
+        let downScale = min(1.0, CGFloat(maxPixelSize) / maxDimension)
         let targetSize = CGSize(
-            width: max(1, CGFloat(width) * scale),
-            height: max(1, CGFloat(height) * scale)
+            width: max(1, basisW * downScale),
+            height: max(1, basisH * downScale)
         )
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = 1

@@ -14,7 +14,8 @@ struct MagicLiftView: View {
                 .scaledToFit()
                 .scaleEffect(isLifted ? 1.05 : 1.0)
                 .offset(y: isLifted ? -8 : 0)
-                .shadow(color: DesignTokens.colors.magicLiftGlow.opacity(isLifted ? 0.8 : 0), radius: 25, x: 0, y: 0)
+                .shadow(color: .black.opacity(isLifted ? 0.15 : 0), radius: 12, x: 0, y: 8)
+                .shadow(color: .black.opacity(isLifted ? 0.08 : 0), radius: 24, x: 0, y: 16)
                 .overlay(shimmerOverlay)
         }
         .compositingGroup()

@@ -7,8 +7,6 @@ enum DesignTokens {
         static let background = Color(hex: "#FAFAFA")
         static let cardStroke = Color(hex: "#EEEEEE")
         static let stickerGlow = Color(hex: "#FF5A5F").opacity(0.25)
-        /// MagicLift sticker reveal halo
-        static let magicLiftGlow = Color(hex: "#FFF4B0")
         /// Figma captures — primary text
         static let capturesTextPrimary = Color(hex: "#121212")
         /// Figma captures — secondary (counts)
