@@ -20,10 +20,6 @@ protocol SpeechVerificationClient: Sendable {
     func verifyPronunciation(expectedText: String, language: Language) async throws -> PronunciationResult
 }
 
-protocol StoryGeneratorClient: Sendable {
-    func generateStory(from words: [WordEntry], language: Language) async throws -> Story
-}
-
 struct AuthUser: Sendable, Equatable, Identifiable {
     let id: String
     var displayName: String
@@ -108,15 +104,6 @@ struct MockSpeechVerificationClient: SpeechVerificationClient {
     func verifyPronunciation(expectedText: String, language: Language) async throws -> PronunciationResult {
         let transcript = expectedText
         return PronunciationResult(isCorrect: true, transcript: transcript, accuracy: 1.0)
-    }
-}
-
-struct LocalStoryGeneratorClient: StoryGeneratorClient {
-    func generateStory(from words: [WordEntry], language: Language) async throws -> Story {
-        let wordTexts = words.prefix(5).map { $0.learnWord }
-        let joined = wordTexts.joined(separator: ", ")
-        let body = "Yesterday I saw \(joined) and decided to learn them by speaking the words out loud."
-        return Story(title: "My Quick Adventure", body: body, createdAt: Date(), associatedWordIds: words.map(\.id))
     }
 }
 

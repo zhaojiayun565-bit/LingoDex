@@ -10,7 +10,6 @@ struct CapturesView: View {
     @State private var searchText: String = ""
     @State private var isShowingSortOptions = false
     @State private var sortOrder: SessionSortOrder = .mostRecent
-    @State private var selectedWord: WordEntry?
     @Namespace private var heroAnimation
 
     init(deps: Dependencies, appViewModel: AppViewModel, capturesViewModel: CapturesViewModel) {
@@ -59,14 +58,14 @@ struct CapturesView: View {
                     }
                 }
 
-                if let word = selectedWord {
+                if let word = capturesViewModel.selectedWord {
                     WordDetailView(
                         deps: deps,
                         viewModel: capturesViewModel,
                         initialWord: word,
                         onDismiss: {
                             withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                                selectedWord = nil
+                                capturesViewModel.selectedWord = nil
                             }
                         },
                         heroNamespace: heroAnimation
@@ -75,19 +74,11 @@ struct CapturesView: View {
                     .zIndex(1)
                 }
             }
-            .animation(.spring(response: 0.42, dampingFraction: 0.86), value: selectedWord?.id)
+            .animation(.spring(response: 0.42, dampingFraction: 0.86), value: capturesViewModel.selectedWord?.id)
             .confirmationDialog("Sort captures", isPresented: $isShowingSortOptions, titleVisibility: .visible) {
                 Button(SessionSortOrder.mostRecent.title) { sortOrder = .mostRecent }
                 Button(SessionSortOrder.leastRecent.title) { sortOrder = .leastRecent }
                 Button("Cancel", role: .cancel) {}
-            }
-            .sheet(
-                isPresented: Binding(
-                    get: { capturesViewModel.isStorySheetPresented },
-                    set: { capturesViewModel.isStorySheetPresented = $0 }
-                )
-            ) {
-                StoryBottomSheet(deps: deps, viewModel: capturesViewModel)
             }
             .onChange(of: capturesViewModel.sessions) { _, sessions in
                 let missingIDs = sessions
@@ -173,7 +164,7 @@ struct CapturesView: View {
                         WordCard(word: word, heroNamespace: heroAnimation) {
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
                             withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
-                                selectedWord = word
+                                capturesViewModel.selectedWord = word
                             }
                         }
                         .transition(.asymmetric(

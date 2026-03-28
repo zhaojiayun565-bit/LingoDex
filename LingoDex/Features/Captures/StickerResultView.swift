@@ -118,7 +118,7 @@ struct StickerResultView: View {
             if let phonetic = word.phoneticBreakdown, !phonetic.isEmpty {
                 Text(phonetic)
                     .font(CaptureTypography.detailPhonetic())
-                    .foregroundStyle(DesignTokens.colors.primary)
+                    .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
 

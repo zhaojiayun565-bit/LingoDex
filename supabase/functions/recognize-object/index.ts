@@ -57,7 +57,7 @@ RULES:
 - If the object is unrecognizable, set "object_name" to null and provide "error_feedback".
 - Focus on nouns that are useful for everyday conversation.
 - Use the most natural, common term for the object (avoid overly technical jargon).
-- Ensure "target_translation" includes any necessary gender markers or articles if applicable in ${learningLanguage}.
+- For "object_name" and "target_translation": provide ONLY the base noun. Do NOT include indefinite articles, definite articles, or determiners (e.g., return "calculator" instead of "a calculator", "gato" instead of "el gato").
 
 Respond with only the JSON object, no markdown or extra text.`;
 
@@ -213,6 +213,15 @@ Deno.serve(async (req) => {
       { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
+
+  console.log(
+    "recognize-object response:",
+    JSON.stringify({
+      learning_language,
+      phonetic_breakdown: parsed.phonetic_breakdown,
+      target_translation: parsed.target_translation,
+    })
+  );
 
   return new Response(JSON.stringify(parsed), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },

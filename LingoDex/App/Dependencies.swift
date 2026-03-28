@@ -35,7 +35,6 @@ final class Dependencies {
     lazy var translation: any TranslationClient = AppleTranslationClient()
     lazy var tts: any TTSClient = KokoroTTSClient(avSpeechFallback: AppleTTSClient())
     lazy var speechVerification: any SpeechVerificationClient = MockSpeechVerificationClient()
-    lazy var storyGenerator: any StoryGeneratorClient = LocalStoryGeneratorClient()
     lazy var auth: SupabaseAuthClient = SupabaseAuthClient(supabase: supabase)
     lazy var localStore: LocalLingoDexStore = LocalLingoDexStore()
     lazy var backgroundRemoval: BackgroundRemovalService = BackgroundRemovalService()

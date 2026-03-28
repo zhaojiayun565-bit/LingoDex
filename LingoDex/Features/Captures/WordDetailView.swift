@@ -199,7 +199,7 @@ struct WordDetailView: View {
             if let phonetic = displayedWord.phoneticBreakdown, !phonetic.isEmpty {
                 Text(phonetic)
                     .font(CaptureTypography.detailPhonetic())
-                    .foregroundStyle(DesignTokens.colors.primary)
+                    .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
 

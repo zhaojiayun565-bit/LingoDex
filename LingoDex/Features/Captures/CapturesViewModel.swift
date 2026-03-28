@@ -20,14 +20,8 @@ enum CaptureFlowPhase: Equatable {
     var pendingWord: WordEntry?
     var pendingExtractedImage: UIImage?
 
-    // MARK: Story Mode
-    var isStorySheetPresented: Bool = false
-    var isStoryGenerating: Bool = false
-    var storyTriggerWords: [WordEntry] = []
-    var generatedStory: Story?
-
-    private let storyMetaLastWordCountKey = "lingodex_last_story_word_count"
-    private let storiesKey = "lingodex_saved_stories"
+    /// Word card expanded to full detail on Captures (drives tab bar visibility in `MainTabContainer`).
+    var selectedWord: WordEntry?
 
     /// Metadata for pending recognition (offline queue).
     private var pendingFullImage: UIImage?
@@ -195,7 +189,6 @@ enum CaptureFlowPhase: Equatable {
                 try await deps.captureStore.insertWord(entity, stickerImage: sticker)
             }
             await load()
-            prepareStoryIfNeeded()
         } catch {
             // Fail silently for MVP.
         }
@@ -278,28 +271,6 @@ enum CaptureFlowPhase: Equatable {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private func prepareStoryIfNeeded() {
-        let totalWordCount = sessions.reduce(0) { $0 + $1.words.count }
-        let lastStoryWordCount = UserDefaults.standard.integer(forKey: storyMetaLastWordCountKey)
-        let newWordsSinceLastStory = totalWordCount - lastStoryWordCount
-
-        guard newWordsSinceLastStory >= 5 else { return }
-
-        let recentWords = sessions
-            .flatMap { $0.words }
-            .sorted(by: { $0.createdAt > $1.createdAt })
-            .prefix(5)
-            .sorted(by: { $0.createdAt < $1.createdAt })
-
-        storyTriggerWords = Array(recentWords)
-        generatedStory = nil
-        isStoryGenerating = false
-        isStorySheetPresented = true
-
-        // Mark progress immediately to avoid re-triggering while the sheet is open.
-        UserDefaults.standard.set(totalWordCount, forKey: storyMetaLastWordCountKey)
-    }
-
     private func setCaptureFlowState(
         phase: CaptureFlowPhase,
         isProcessing: Bool,
@@ -314,38 +285,6 @@ enum CaptureFlowPhase: Equatable {
         pendingExtractedImage = extractedImage
         pendingFullImage = fullImage
         pendingNormalizedBBox = normalizedBBox
-    }
-
-    func createStoryIfNeeded() async {
-        guard !isStoryGenerating, generatedStory == nil, !storyTriggerWords.isEmpty else { return }
-        isStoryGenerating = true
-        generatedStory = nil
-
-        do {
-            let story = try await deps.storyGenerator.generateStory(from: storyTriggerWords, language: .english)
-            generatedStory = story
-        } catch {
-            // For MVP, keep UI stable.
-        }
-
-        isStoryGenerating = false
-    }
-
-    func saveGeneratedStory() {
-        guard let story = generatedStory else { return }
-
-        var existing: [Story] = []
-        if let data = UserDefaults.standard.data(forKey: storiesKey) {
-            existing = (try? JSONDecoder().decode([Story].self, from: data)) ?? []
-        }
-
-        if !existing.contains(where: { $0.id == story.id }) {
-            existing.append(story)
-        }
-
-        if let encoded = try? JSONEncoder().encode(existing) {
-            UserDefaults.standard.set(encoded, forKey: storiesKey)
-        }
     }
 }
 

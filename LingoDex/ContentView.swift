@@ -54,7 +54,9 @@ private struct MainTabContainer: View {
     }
 
     private func mainContent(capturesViewModel: CapturesViewModel) -> some View {
-        ZStack(alignment: .bottom) {
+        let tabBarHidden =
+            isKeyboardVisible || capturesViewModel.selectedWord != nil
+        return ZStack(alignment: .bottom) {
             Group {
                 switch viewModel.selectedTab {
                 case .captures:
@@ -90,10 +92,10 @@ private struct MainTabContainer: View {
             )
             // Keep only the custom tab bar pinned so keyboard overlays it.
             .ignoresSafeArea(.keyboard, edges: .bottom)
-            .opacity(isKeyboardVisible ? 0 : 1)
-            .offset(y: isKeyboardVisible ? 120 : 0)
-            .allowsHitTesting(!isKeyboardVisible)
-            .animation(.easeOut(duration: 0.2), value: isKeyboardVisible)
+            .opacity(tabBarHidden ? 0 : 1)
+            .offset(y: tabBarHidden ? 120 : 0)
+            .allowsHitTesting(!tabBarHidden)
+            .animation(.easeOut(duration: 0.2), value: tabBarHidden)
             .padding(.bottom, 14)
         }
         .background(DesignTokens.colors.background.ignoresSafeArea())
