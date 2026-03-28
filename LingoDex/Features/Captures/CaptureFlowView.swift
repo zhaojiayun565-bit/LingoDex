@@ -2,7 +2,7 @@ import AVFoundation
 import SwiftUI
 import UIKit
 
-/// Orchestrates full capture flow: camera → unified post-capture reveal (no view swap mid-animation).
+/// Orchestrates full capture flow: camera → processing → sticker result.
 struct CaptureFlowView: View {
     @Binding var isPresented: Bool
     let deps: Dependencies
@@ -30,8 +30,10 @@ struct CaptureFlowView: View {
                     preWarmedSession: preWarmedSession,
                     preWarmedPhotoOutput: preWarmedPhotoOutput
                 )
-            case .processing, .result:
-                postCaptureView
+            case .processing:
+                processingOverlay
+            case .result:
+                resultView
             }
         }
         .sheet(item: $verificationTarget) { target in
@@ -53,16 +55,26 @@ struct CaptureFlowView: View {
         }
     }
 
+    private var processingOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.85).ignoresSafeArea()
+            VStack(spacing: 16) {
+                ProgressView()
+                    .scaleEffect(1.2)
+                    .tint(.white)
+                Text("Processing...")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(.white)
+            }
+        }
+    }
+
     @ViewBuilder
-    private var postCaptureView: some View {
-        if let word = viewModel.pendingWord,
-           viewModel.pendingCapturedImageInfo != nil {
+    private var resultView: some View {
+        if let word = viewModel.pendingWord, let image = viewModel.pendingExtractedImage {
             StickerResultView(
                 word: word,
-                extractedImage: viewModel.pendingExtractedImage,
-                maskImage: viewModel.pendingMaskImage,
-                capturedImageInfo: viewModel.pendingCapturedImageInfo,
-                revealPhase: viewModel.captureRevealPhase,
+                extractedImage: image,
                 deps: deps,
                 onSave: {
                     Task {
@@ -81,8 +93,6 @@ struct CaptureFlowView: View {
                     verificationTarget = $0
                 }
             )
-        } else {
-            Color.black.opacity(0.85).ignoresSafeArea()
         }
     }
 }

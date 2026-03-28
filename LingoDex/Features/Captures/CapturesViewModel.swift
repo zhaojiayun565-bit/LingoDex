@@ -9,35 +9,16 @@ enum CaptureFlowPhase: Equatable {
     case result
 }
 
-/// Drives unified post-capture reveal: edge scan → pixel dissolve → card → chrome.
-enum CaptureRevealPhase: Equatable {
-    case scanning
-    case isolating
-    case morphing
-    case revealed
-}
-
-private enum CaptureRevealTiming {
-    static let minEdgeScanMs: UInt64 = 160
-    /// Matches StickerResultView pixel dissolve animation + buffer.
-    static let pixelIsolateMs: UInt64 = 420
-    static let morphingMs: UInt64 = 320
-}
-
 @MainActor
 @Observable final class CapturesViewModel {
     private let deps: Dependencies
     var sessions: [CaptureSession] = []
     var isProcessingCapture: Bool = false
 
-    // MARK: Pending capture
+    // MARK: Pending capture (two-phase flow)
     var captureFlowPhase: CaptureFlowPhase = .camera
-    var captureRevealPhase: CaptureRevealPhase = .scanning
     var pendingWord: WordEntry?
     var pendingExtractedImage: UIImage?
-    /// Vision mask raster for razor edge scan (nil if lift failed).
-    var pendingMaskImage: UIImage?
-    var pendingCapturedImageInfo: CapturedImageInfo?
 
     // MARK: Story Mode
     var isStorySheetPresented: Bool = false
@@ -48,6 +29,7 @@ private enum CaptureRevealTiming {
     private let storyMetaLastWordCountKey = "lingodex_last_story_word_count"
     private let storiesKey = "lingodex_saved_stories"
 
+    /// Metadata for pending recognition (offline queue).
     private var pendingFullImage: UIImage?
     private var pendingNormalizedBBox: String?
     private var pendingLearningLang: String = "english"
@@ -56,7 +38,6 @@ private enum CaptureRevealTiming {
     private var isLoadingFullCaptureHistory = false
     private var pendingThumbnailBackfillIDs: Set<UUID> = []
     private var thumbnailBackfillTask: Task<Void, Never>?
-    private var revealChoreographyTask: Task<Void, Never>?
 
     init(deps: Dependencies) {
         self.deps = deps
@@ -67,6 +48,7 @@ private enum CaptureRevealTiming {
         await loadFullCaptures()
     }
 
+    /// Loads the initial, bounded capture history for fast first paint.
     func loadInitialCaptures() async {
         guard !hasStartedInitialLoad else { return }
         hasStartedInitialLoad = true
@@ -78,6 +60,7 @@ private enum CaptureRevealTiming {
         Task { await loadFullCaptures() }
     }
 
+    /// Loads complete capture history in the background and swaps in once ready.
     func loadFullCaptures() async {
         guard !isLoadingFullCaptureHistory else { return }
         isLoadingFullCaptureHistory = true
@@ -92,13 +75,18 @@ private enum CaptureRevealTiming {
         }
     }
 
-    /// Subject lift + recognition; reveal choreography after sticker is ready.
+    /// Processes captured image: subject lift and Gemini run in parallel when online. Shows result when both complete.
     func processCapturedImage(_ info: CapturedImageInfo) async {
-        revealChoreographyTask?.cancel()
-        revealChoreographyTask = nil
+        setCaptureFlowState(
+            phase: .processing,
+            isProcessing: true,
+            word: nil,
+            extractedImage: nil,
+            fullImage: nil,
+            normalizedBBox: nil
+        )
 
-        pendingCapturedImageInfo = info
-        captureRevealPhase = .scanning
+        defer { isProcessingCapture = false }
 
         let image = info.image
         let normalizedBBox = info.normalizedBBoxString
@@ -107,34 +95,12 @@ private enum CaptureRevealTiming {
         let wordId = UUID()
         let imageFileName = "\(wordId).png"
 
-        let placeholderWord = WordEntry(
-            id: wordId,
-            imageFileName: imageFileName,
-            recognizedEnglish: "Loading…",
-            learnWord: "Loading…",
-            nativeWord: "Pending",
-            createdAt: Date(),
-            srs: SRSCardState()
-        )
-
-        setCaptureFlowState(
-            phase: .processing,
-            isProcessing: true,
-            word: placeholderWord,
-            extractedImage: nil,
-            maskImage: nil,
-            fullImage: nil,
-            normalizedBBox: nil
-        )
-
-        defer { isProcessingCapture = false }
-
+        // Run subject lift and Gemini recognition in parallel when online.
         let sticker: UIImage
-        let maskUIImage: UIImage?
         let recognitionResult: (learnWord: String, nativeWord: String, recognizedEnglish: String)?
 
         if deps.networkMonitor.isReachable {
-            async let liftOptional: SubjectLiftResult? = try? await deps.subjectLift.extractStickerAndMask(from: image)
+            async let stickerTask = deps.subjectLift.extractSticker(from: image)
             async let recognitionTask = deps.geminiRecognition.recognize(
                 image: image,
                 boundingBox: normalizedBBox,
@@ -142,9 +108,8 @@ private enum CaptureRevealTiming {
                 learningLanguage: learningLang
             )
 
-            let lift = await liftOptional
-            sticker = lift?.sticker ?? image
-            maskUIImage = lift?.mask
+            let stickerResult = try? await stickerTask
+            sticker = stickerResult ?? image
 
             if let result = try? await recognitionTask {
                 recognitionResult = (
@@ -156,59 +121,58 @@ private enum CaptureRevealTiming {
                 recognitionResult = nil
             }
         } else {
-            let lift = try? await deps.subjectLift.extractStickerAndMask(from: image)
-            sticker = lift?.sticker ?? image
-            maskUIImage = lift?.mask
+            // Offline: sticker only, queue for sync.
+            if let s = try? await deps.subjectLift.extractSticker(from: image) {
+                sticker = s
+            } else {
+                sticker = image
+            }
             recognitionResult = nil
         }
 
-        pendingExtractedImage = sticker
-        pendingMaskImage = maskUIImage
-
+        // Build word entry: use recognition result or pending state.
         if let r = recognitionResult {
-            pendingWord = WordEntry(
+            let nextWord = WordEntry(
                 id: wordId,
                 imageFileName: imageFileName,
                 recognizedEnglish: r.recognizedEnglish,
                 learnWord: r.learnWord,
                 nativeWord: r.nativeWord,
-                createdAt: placeholderWord.createdAt,
+                createdAt: Date(),
                 srs: SRSCardState()
             )
-            pendingFullImage = nil
-            pendingNormalizedBBox = nil
+            setCaptureFlowState(
+                phase: .result,
+                isProcessing: isProcessingCapture,
+                word: nextWord,
+                extractedImage: sticker,
+                fullImage: nil,
+                normalizedBBox: nil
+            )
         } else {
-            pendingWord = WordEntry(
+            let nextWord = WordEntry(
                 id: wordId,
                 imageFileName: imageFileName,
                 recognizedEnglish: "Loading…",
                 learnWord: "Loading…",
                 nativeWord: "Pending",
-                createdAt: placeholderWord.createdAt,
+                createdAt: Date(),
                 srs: SRSCardState()
             )
-            pendingFullImage = image
-            pendingNormalizedBBox = normalizedBBox
+            setCaptureFlowState(
+                phase: .result,
+                isProcessing: isProcessingCapture,
+                word: nextWord,
+                extractedImage: sticker,
+                fullImage: image,
+                normalizedBBox: normalizedBBox
+            )
             pendingLearningLang = learningLang
             pendingNativeLang = nativeLang
         }
-
-        revealChoreographyTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(CaptureRevealTiming.minEdgeScanMs))
-            guard !Task.isCancelled else { return }
-            captureRevealPhase = .isolating
-
-            try? await Task.sleep(for: .milliseconds(CaptureRevealTiming.pixelIsolateMs))
-            guard !Task.isCancelled else { return }
-            captureRevealPhase = .morphing
-
-            try? await Task.sleep(for: .milliseconds(CaptureRevealTiming.morphingMs))
-            guard !Task.isCancelled else { return }
-            captureRevealPhase = .revealed
-            captureFlowPhase = .result
-        }
     }
 
+    /// Persists pending word and sticker. Uses pending entity when offline (queued for sync).
     func savePendingWord() async {
         guard let word = pendingWord, let sticker = pendingExtractedImage else { return }
 
@@ -239,31 +203,32 @@ private enum CaptureRevealTiming {
             await load()
             prepareStoryIfNeeded()
         } catch {
+            // Fail silently for MVP.
         }
 
-        cancelRevealAndResetFlow()
-    }
-
-    func dismissPending() {
-        cancelRevealAndResetFlow()
-    }
-
-    private func cancelRevealAndResetFlow() {
-        revealChoreographyTask?.cancel()
-        revealChoreographyTask = nil
-        pendingCapturedImageInfo = nil
-        captureRevealPhase = .scanning
         setCaptureFlowState(
             phase: .camera,
             isProcessing: false,
             word: nil,
             extractedImage: nil,
-            maskImage: nil,
             fullImage: nil,
             normalizedBBox: nil
         )
     }
 
+    /// Discards pending capture without saving.
+    func dismissPending() {
+        setCaptureFlowState(
+            phase: .camera,
+            isProcessing: false,
+            word: nil,
+            extractedImage: nil,
+            fullImage: nil,
+            normalizedBBox: nil
+        )
+    }
+
+    /// Schedules lazy thumbnail backfill for words missing SwiftData thumbnail blobs.
     func scheduleThumbnailBackfill(for ids: [UUID]) {
         let missing = Set(ids)
         guard !missing.isEmpty else { return }
@@ -283,18 +248,22 @@ private enum CaptureRevealTiming {
                     await loadFullCaptures()
                 }
             } catch {
+                // Ignore backfill failures; placeholders remain.
             }
         }
     }
 
+    /// Deletes a word from sessions and its image file.
     func deleteWord(_ word: WordEntry) async {
         do {
             try await deps.captureStore.deleteWord(id: word.id)
             await load()
         } catch {
+            // Fail silently for MVP.
         }
     }
 
+    /// Updates a word's learn and native labels.
     func updateWord(_ word: WordEntry, learnWord: String, nativeWord: String) async {
         guard !learnWord.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         do {
@@ -305,6 +274,7 @@ private enum CaptureRevealTiming {
             )
             await load()
         } catch {
+            // Fail silently for MVP.
         }
     }
 
@@ -339,6 +309,7 @@ private enum CaptureRevealTiming {
         isStoryGenerating = false
         isStorySheetPresented = true
 
+        // Mark progress immediately to avoid re-triggering while the sheet is open.
         UserDefaults.standard.set(totalWordCount, forKey: storyMetaLastWordCountKey)
     }
 
@@ -347,7 +318,6 @@ private enum CaptureRevealTiming {
         isProcessing: Bool,
         word: WordEntry?,
         extractedImage: UIImage?,
-        maskImage: UIImage?,
         fullImage: UIImage?,
         normalizedBBox: String?
     ) {
@@ -355,7 +325,6 @@ private enum CaptureRevealTiming {
         isProcessingCapture = isProcessing
         pendingWord = word
         pendingExtractedImage = extractedImage
-        pendingMaskImage = maskImage
         pendingFullImage = fullImage
         pendingNormalizedBBox = normalizedBBox
     }
@@ -369,6 +338,7 @@ private enum CaptureRevealTiming {
             let story = try await deps.storyGenerator.generateStory(from: storyTriggerWords, language: .english)
             generatedStory = story
         } catch {
+            // For MVP, keep UI stable.
         }
 
         isStoryGenerating = false
@@ -391,3 +361,4 @@ private enum CaptureRevealTiming {
         }
     }
 }
+
