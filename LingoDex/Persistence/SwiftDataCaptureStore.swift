@@ -238,36 +238,20 @@ final class SwiftDataCaptureStore {
         }.value
     }
 
-    /// Downscales for storage; uses oriented pixel size (`size` × `scale`) so the draw rect matches `UIImage.draw(in:)` when `imageOrientation` is not `.up` (e.g. camera stickers from subject lift).
     private static func thumbnailData(from image: UIImage, maxPixelSize: Int) -> Data? {
-        guard let cg = image.cgImage else { return image.pngData() }
+        let maxDimension = max(image.size.width, image.size.height)
+        guard maxDimension > 0 else { return image.pngData() }
 
-        let pixelWidth = image.size.width * image.scale
-        let pixelHeight = image.size.height * image.scale
-        let basisW: CGFloat
-        let basisH: CGFloat
-        if pixelWidth > 0, pixelHeight > 0, pixelWidth.isFinite, pixelHeight.isFinite {
-            basisW = pixelWidth
-            basisH = pixelHeight
-        } else {
-            basisW = CGFloat(cg.width)
-            basisH = CGFloat(cg.height)
+        let scale = min(1.0, CGFloat(maxPixelSize) / maxDimension)
+        let targetSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+
+        // preparingThumbnail(of:) handles EXIF orientation, alpha channels, and scaling perfectly at the system level.
+        if let thumbnail = image.preparingThumbnail(of: targetSize) {
+            return thumbnail.pngData()
         }
 
-        let maxDimension = max(basisW, basisH)
-        guard maxDimension > 0, maxDimension.isFinite else { return image.pngData() }
-        let downScale = min(1.0, CGFloat(maxPixelSize) / maxDimension)
-        let targetSize = CGSize(
-            width: max(1, basisW * downScale),
-            height: max(1, basisH * downScale)
-        )
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = 1
-        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
-        let resized = renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: targetSize))
-        }
-        return resized.pngData()
+        // Fallback just in case
+        return image.pngData()
     }
 
     private static func thumbnailData(fromImageAt url: URL, maxPixelSize: Int) -> Data? {

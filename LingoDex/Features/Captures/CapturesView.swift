@@ -190,7 +190,7 @@ struct CapturesView: View {
             .clipShape(RoundedRectangle(cornerRadius: DesignTokens.layout.capturesCardCornerRadius, style: .continuous))
             .shadow(color: .black.opacity(0.06), radius: 12, x: 0, y: 4)
         }
-        .padding(.bottom, 32)
+        .padding(.bottom, 48)
     }
 
     /// Figma uses 2 columns on phone; more columns on regular width (iPad).
@@ -262,7 +262,7 @@ private struct WordCard: View {
 
     var body: some View {
         Button(action: onTap) {
-            VStack(spacing: -4) {
+            VStack(spacing: -12) {
                 ZStack {
                     Color.clear
                     Group {
