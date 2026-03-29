@@ -320,7 +320,7 @@ private final class SpeechEngineBackend: @unchecked Sendable {
         try? AVAudioSession.sharedInstance().setCategory(
             .playback,
             mode: .default,
-            options: [.allowBluetooth]
+            options: []
         )
         try? AVAudioSession.sharedInstance().setActive(true)
     }

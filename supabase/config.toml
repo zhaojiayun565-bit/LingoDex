@@ -39,4 +39,4 @@ enable_signup = true
 verify_jwt = false
 
 [functions.minimax-tts]
-verify_jwt = true
+verify_jwt = false

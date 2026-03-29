@@ -1,11 +1,11 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Updated to use standard default System Voice IDs for each language
 const voiceByLanguage: Record<string, string> = {
   english: "English_radiant_girl",
   french: "French_standard_female",
@@ -19,13 +19,45 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return new Response("Method not allowed", { status: 405, headers: corsHeaders });
 
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader) {
+    return new Response(
+      JSON.stringify({ error: "Missing authorization" }),
+      { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : authHeader;
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser(jwt);
+
+    if (authError || !user) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+  } catch {
+    return new Response(
+      JSON.stringify({ error: "Unauthorized" }),
+      { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+
   const apiKey = Deno.env.get("MINIMAX_API_KEY");
   if (!apiKey) return new Response("Server configuration error", { status: 500, headers: corsHeaders });
 
   const { text, language } = await req.json();
 
-  // Fallback to a generic clear voice if the language isn't in our map
-  const voiceId = voiceByLanguage[language] || "English_radiant_girl";
+  const voiceId = voiceByLanguage[language] || "Wise_Woman";
 
   // Minimax API Call
   const minimaxRes = await fetch("https://api.minimaxi.com/v1/t2a_v2", {
