@@ -50,7 +50,7 @@ actor MinimaxTTSClient: TTSClient {
     private func play(_ audioData: Data) async throws {
         activePlayer?.stop()
 
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
         try? AVAudioSession.sharedInstance().setActive(true)
 
         let player = try AVAudioPlayer(data: audioData)
