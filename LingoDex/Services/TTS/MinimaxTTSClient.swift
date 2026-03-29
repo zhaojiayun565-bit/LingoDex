@@ -1,95 +1,98 @@
 import Foundation
 import AVFoundation
 
-/// Calls the Supabase minimax-tts Edge Function and plays the returned audio.
 actor MinimaxTTSClient: TTSClient {
     private let supabaseURL: URL
     private let anonKey: String
     private let authTokenProvider: @Sendable () -> String?
+    
     private var activePlayer: AVAudioPlayer?
-    private var playbackDelegate: AudioCompletionDelegate?
+    private var activeDelegate: TTSPlaybackDelegate?
 
-    init(
-        supabaseURL: URL,
-        anonKey: String,
-        authTokenProvider: @escaping @Sendable () -> String?
-    ) {
+    init(supabaseURL: URL, anonKey: String, authTokenProvider: @escaping @Sendable () -> String?) {
         self.supabaseURL = supabaseURL
         self.anonKey = anonKey
         self.authTokenProvider = authTokenProvider
     }
 
-    /// Requests speech audio for text + language, then plays it through AVAudioPlayer.
     func speak(_ text: String, language: Language) async throws {
-        let audioData = try await fetchAudioData(text: text, language: language)
-        try await play(audioData)
-    }
-
-    private func fetchAudioData(text: String, language: Language) async throws -> Data {
         guard let token = authTokenProvider() else { throw LingoDexServiceError.supabaseNotConfigured }
 
-        var components = URLComponents(url: supabaseURL, resolvingAgainstBaseURL: false)
-        components?.path = "/functions/v1/minimax-tts"
-        guard let url = components?.url else { throw URLError(.badURL) }
-
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: supabaseURL.appendingPathComponent("/functions/v1/minimax-tts"))
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue(anonKey, forHTTPHeaderField: "apikey")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body = RequestBody(text: text, language: language.rawValue)
-        request.httpBody = try JSONEncoder().encode(body)
+        request.httpBody = try JSONEncoder().encode(["text": text, "language": language.rawValue])
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+        
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            let errorMsg = String(data: data, encoding: .utf8) ?? "Unknown server error"
+            print("🚨 Supabase Error: \(errorMsg)")
             throw LingoDexServiceError.recognitionFailed
         }
-        return data
+
+        try await play(audioData: data)
     }
 
-    private func play(_ audioData: Data) async throws {
+    private func play(audioData: Data) async throws {
+        // BEST PRACTICE: Write to a temp file to ensure iOS recognizes the MP3 codec
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp3")
+        try audioData.write(to: tempURL, options: .atomic)
+        
+        // Stop current playback to prevent overlaps
+        activeDelegate?.cancel()
         activePlayer?.stop()
 
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-        try? AVAudioSession.sharedInstance().setActive(true)
+        // Configure global audio session safely
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(.playback, mode: .default, options: [.duckOthers])
+        try session.setActive(true)
 
-        let player = try AVAudioPlayer(data: audioData)
+        let player = try AVAudioPlayer(contentsOf: tempURL)
         player.prepareToPlay()
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            let delegate = AudioCompletionDelegate(continuation: continuation)
+            let delegate = TTSPlaybackDelegate(continuation: continuation, fileURL: tempURL)
             player.delegate = delegate
+            
             self.activePlayer = player
-            self.playbackDelegate = delegate
+            self.activeDelegate = delegate
+            
             _ = player.play()
         }
-
-        activePlayer = nil
-        playbackDelegate = nil
     }
 }
 
-private extension MinimaxTTSClient {
-    struct RequestBody: Encodable {
-        let text: String
-        let language: String
-    }
-}
-
-private final class AudioCompletionDelegate: NSObject, AVAudioPlayerDelegate {
+private final class TTSPlaybackDelegate: NSObject, AVAudioPlayerDelegate {
     private var continuation: CheckedContinuation<Void, Error>?
+    private let fileURL: URL
 
-    init(continuation: CheckedContinuation<Void, Error>) {
+    init(continuation: CheckedContinuation<Void, Error>, fileURL: URL) {
         self.continuation = continuation
+        self.fileURL = fileURL
     }
 
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        cleanup()
         continuation?.resume(returning: ())
         continuation = nil
     }
 
     func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        cleanup()
         continuation?.resume(throwing: error ?? LingoDexServiceError.recognitionFailed)
         continuation = nil
+    }
+
+    func cancel() {
+        cleanup()
+        continuation?.resume(throwing: CancellationError())
+        continuation = nil
+    }
+
+    private func cleanup() {
+        try? FileManager.default.removeItem(at: fileURL)
     }
 }

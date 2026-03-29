@@ -316,10 +316,11 @@ private final class SpeechEngineBackend: @unchecked Sendable {
     }
 
     private func restorePlaybackAudioSession() {
+        // We MUST remove .defaultToSpeaker here, otherwise it crashes AVAudioSession
         try? AVAudioSession.sharedInstance().setCategory(
             .playback,
             mode: .default,
-            options: [.defaultToSpeaker, .allowBluetooth]
+            options: [.allowBluetooth]
         )
         try? AVAudioSession.sharedInstance().setActive(true)
     }
