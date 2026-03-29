@@ -53,14 +53,22 @@ Deno.serve(async (req) => {
   }
 
   const apiKey = Deno.env.get("MINIMAX_API_KEY");
-  if (!apiKey) return new Response("Server configuration error", { status: 500, headers: corsHeaders });
+  const groupId = Deno.env.get("MINIMAX_GROUP_ID");
+
+  if (!apiKey || !groupId) {
+    return new Response("Server config error: Missing API Key or Group ID", { status: 500, headers: corsHeaders });
+  }
 
   const { text, language } = await req.json();
 
   const voiceId = voiceByLanguage[language] || "Wise_Woman";
 
-  // Minimax API Call
-  const minimaxRes = await fetch("https://api.minimaxi.com/v1/t2a_v2", {
+  // International keys (minimax.io) use https://api.minimax.io. China accounts may use https://api.minimaxi.com — set MINIMAX_API_BASE_URL if needed.
+  const baseRaw = Deno.env.get("MINIMAX_API_BASE_URL") ?? "https://api.minimax.io";
+  const base = baseRaw.replace(/\/$/, "");
+  const minimaxUrl = `${base}/v1/t2a_v2?GroupId=${encodeURIComponent(groupId)}`;
+  
+  const minimaxRes = await fetch(minimaxUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -88,10 +96,15 @@ Deno.serve(async (req) => {
   if (!minimaxRes.ok) return new Response("TTS service unavailable", { status: 502, headers: corsHeaders });
 
   const minimaxJson = await minimaxRes.json();
+
+  if (minimaxJson.base_resp && minimaxJson.base_resp.status_code !== 0) {
+    const errorMsg = minimaxJson.base_resp.status_msg || "Unknown Minimax Error";
+    return new Response(`Minimax API Error: ${errorMsg}`, { status: 502, headers: corsHeaders });
+  }
+
   const audioBase64 = minimaxJson?.data?.audio || minimaxJson?.audio_base64;
   if (!audioBase64) return new Response("Empty audio response", { status: 502, headers: corsHeaders });
 
-  // Convert Base64 to binary raw MP3 buffer
   const audioBuffer = Uint8Array.from(atob(audioBase64), (c) => c.charCodeAt(0));
 
   return new Response(audioBuffer, {

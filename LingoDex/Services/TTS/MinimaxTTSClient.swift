@@ -30,7 +30,7 @@ actor MinimaxTTSClient: TTSClient {
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
             let errorMsg = String(data: data, encoding: .utf8) ?? "Unknown server error"
             print("🚨 Supabase Error: \(errorMsg)")
-            throw LingoDexServiceError.recognitionFailed
+            throw LingoDexServiceError.ttsFailed
         }
 
         try await play(audioData: data)
@@ -82,7 +82,7 @@ private final class TTSPlaybackDelegate: NSObject, AVAudioPlayerDelegate {
 
     func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
         cleanup()
-        continuation?.resume(throwing: error ?? LingoDexServiceError.recognitionFailed)
+        continuation?.resume(throwing: error ?? LingoDexServiceError.ttsFailed)
         continuation = nil
     }
 
