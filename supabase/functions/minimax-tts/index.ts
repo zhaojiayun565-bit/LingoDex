@@ -11,11 +11,6 @@ interface RequestBody {
   language: string;
 }
 
-interface MinimaxSuccessResponse {
-  audio_base64: string;
-  content_type: string;
-}
-
 const voiceByLanguage: Record<string, string> = {
   english: "male-qn-qingse",
   french: "female-tianmei-jingpin",
@@ -156,12 +151,14 @@ Deno.serve(async (req) => {
     );
   }
 
-  const responseBody: MinimaxSuccessResponse = {
-    audio_base64: audioBase64,
-    content_type: "audio/mpeg",
-  };
+  const audioBuffer = Uint8Array.from(atob(audioBase64), (c) => c.charCodeAt(0));
 
-  return new Response(JSON.stringify(responseBody), {
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  return new Response(audioBuffer, {
+    status: 200,
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "audio/mpeg",
+      "Content-Length": audioBuffer.length.toString(),
+    },
   });
 });

@@ -1,13 +1,13 @@
 import Foundation
 import AVFoundation
 
-private var minimaxPlaybackDelegateKey: UInt8 = 0
-
 /// Calls the Supabase minimax-tts Edge Function and plays the returned audio.
-struct MinimaxTTSClient: TTSClient {
+actor MinimaxTTSClient: TTSClient {
     private let supabaseURL: URL
     private let anonKey: String
     private let authTokenProvider: @Sendable () -> String?
+    private var activePlayer: AVAudioPlayer?
+    private var playbackDelegate: AudioCompletionDelegate?
 
     init(
         supabaseURL: URL,
@@ -21,9 +21,12 @@ struct MinimaxTTSClient: TTSClient {
 
     /// Requests speech audio for text + language, then plays it through AVAudioPlayer.
     func speak(_ text: String, language: Language) async throws {
-        guard let token = authTokenProvider() else {
-            throw LingoDexServiceError.supabaseNotConfigured
-        }
+        let audioData = try await fetchAudioData(text: text, language: language)
+        try await play(audioData)
+    }
+
+    private func fetchAudioData(text: String, language: Language) async throws -> Data {
+        guard let token = authTokenProvider() else { throw LingoDexServiceError.supabaseNotConfigured }
 
         var components = URLComponents(url: supabaseURL, resolvingAgainstBaseURL: false)
         components?.path = "/functions/v1/minimax-tts"
@@ -34,37 +37,35 @@ struct MinimaxTTSClient: TTSClient {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue(anonKey, forHTTPHeaderField: "apikey")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(RequestBody(text: text, language: language.rawValue))
+        let body = RequestBody(text: text, language: language.rawValue)
+        request.httpBody = try JSONEncoder().encode(body)
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
-        guard (200..<300).contains(http.statusCode) else {
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw LingoDexServiceError.recognitionFailed
         }
-
-        let payload = try JSONDecoder().decode(EdgeResponse.self, from: data)
-        guard let audioData = Data(base64Encoded: payload.audioBase64) else {
-            throw LingoDexServiceError.recognitionFailed
-        }
-        try await playAudio(audioData)
+        return data
     }
 
-    private func playAudio(_ audioData: Data) async throws {
+    private func play(_ audioData: Data) async throws {
+        activePlayer?.stop()
+
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
         try? AVAudioSession.sharedInstance().setActive(true)
 
+        let player = try AVAudioPlayer(data: audioData)
+        player.prepareToPlay()
+
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            do {
-                let player = try AVAudioPlayer(data: audioData)
-                player.prepareToPlay()
-                let delegate = MinimaxPlaybackDelegate(continuation: continuation, player: player)
-                player.delegate = delegate
-                objc_setAssociatedObject(player, &minimaxPlaybackDelegateKey, delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-                _ = player.play()
-            } catch {
-                continuation.resume(throwing: error)
-            }
+            let delegate = AudioCompletionDelegate(continuation: continuation)
+            player.delegate = delegate
+            self.activePlayer = player
+            self.playbackDelegate = delegate
+            _ = player.play()
         }
+
+        activePlayer = nil
+        playbackDelegate = nil
     }
 }
 
@@ -73,39 +74,22 @@ private extension MinimaxTTSClient {
         let text: String
         let language: String
     }
-
-    struct EdgeResponse: Decodable {
-        let audioBase64: String
-
-        enum CodingKeys: String, CodingKey {
-            case audioBase64 = "audio_base64"
-        }
-    }
 }
 
-private final class MinimaxPlaybackDelegate: NSObject, AVAudioPlayerDelegate {
-    private let continuation: CheckedContinuation<Void, Error>
-    private var player: AVAudioPlayer?
-    private var hasResumed = false
+private final class AudioCompletionDelegate: NSObject, AVAudioPlayerDelegate {
+    private var continuation: CheckedContinuation<Void, Error>?
 
-    init(continuation: CheckedContinuation<Void, Error>, player: AVAudioPlayer) {
+    init(continuation: CheckedContinuation<Void, Error>) {
         self.continuation = continuation
-        self.player = player
     }
 
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        guard !hasResumed else { return }
-        hasResumed = true
-        self.player = nil
-        objc_setAssociatedObject(player, &minimaxPlaybackDelegateKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        continuation.resume(returning: ())
+        continuation?.resume(returning: ())
+        continuation = nil
     }
 
     func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
-        guard !hasResumed else { return }
-        hasResumed = true
-        self.player = nil
-        objc_setAssociatedObject(player, &minimaxPlaybackDelegateKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        continuation.resume(throwing: error ?? LingoDexServiceError.recognitionFailed)
+        continuation?.resume(throwing: error ?? LingoDexServiceError.recognitionFailed)
+        continuation = nil
     }
 }
