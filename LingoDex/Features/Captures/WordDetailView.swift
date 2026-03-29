@@ -329,7 +329,10 @@ struct WordDetailView: View {
             isSpeakerPulsing = true
             do {
                 try await deps.tts.speak(displayedWord.learnWord, language: .currentLearning)
-            } catch { /* TTS error ignored for UX */ }
+            } catch {
+                // Surface TTS failures in Xcode console while debugging.
+                print("🔊 Minimax TTS Error: \(error.localizedDescription)")
+            }
             await MainActor.run {
                 isSpeakerPulsing = false
                 isSpeaking = false

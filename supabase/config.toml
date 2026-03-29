@@ -37,3 +37,6 @@ enable_signup = true
 
 [functions.recognize-object]
 verify_jwt = false
+
+[functions.minimax-tts]
+verify_jwt = true

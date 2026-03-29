@@ -33,7 +33,18 @@ final class Dependencies {
     )
     lazy var objectRecognition: any ObjectRecognitionClient = AppleVisionObjectRecognitionClient()
     lazy var translation: any TranslationClient = AppleTranslationClient()
-    lazy var tts: any TTSClient = KokoroTTSClient(avSpeechFallback: AppleTTSClient())
+    lazy var tts: any TTSClient = {
+        let urlString = (Bundle.main.object(forInfoDictionaryKey: "SUPABASE_URL") as? String)
+            ?? ProcessInfo.processInfo.environment["SUPABASE_URL"]
+            ?? ""
+        let key = (Bundle.main.object(forInfoDictionaryKey: "SUPABASE_ANON_KEY") as? String)
+            ?? ProcessInfo.processInfo.environment["SUPABASE_ANON_KEY"]
+            ?? ""
+        let url = URL(string: urlString) ?? URL(string: "https://placeholder.supabase.co")!
+        return MinimaxTTSClient(supabaseURL: url, anonKey: key) { [weak self] in
+            self?.auth.accessToken
+        }
+    }()
     lazy var speechVerification: any SpeechVerificationClient = MockSpeechVerificationClient()
     lazy var auth: SupabaseAuthClient = SupabaseAuthClient(supabase: supabase)
     lazy var localStore: LocalLingoDexStore = LocalLingoDexStore()
