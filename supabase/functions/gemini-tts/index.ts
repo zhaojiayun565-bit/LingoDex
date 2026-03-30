@@ -6,15 +6,15 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const DEFAULT_TTS_MODEL = "gemini-2.5-flash-lite-preview-tts";
+const DEFAULT_TTS_MODEL = "gemini-2.5-flash-preview-tts";
 
 const voiceByLanguage: Record<string, string> = {
   english: "Puck",
-  french: "Charon",
+  french: "Aoede",
   spanish: "Vindemiatrix",
-  mandarinChinese: "Kore",
-  japanese: "Kore",
-  korean: "Sulafat",
+  mandarinChinese: "Zubenelgenubi",
+  japanese: "Charon",
+  korean: "Kore",
 };
 
 /** Prepends a 44-byte RIFF/WAV header for 24kHz mono 16-bit signed PCM. */
