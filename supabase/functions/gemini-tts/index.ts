@@ -22,7 +22,7 @@ const languageCodeByAppLanguage: Record<string, string> = {
   english: "en-US",
   french: "fr-FR",
   spanish: "es-ES",
-  mandarinChinese: "zh-CN",
+  mandarinChinese: "cmn-CN",
   japanese: "ja-JP",
   korean: "ko-KR",
 };
@@ -32,7 +32,7 @@ const displayLanguageByAppLanguage: Record<string, string> = {
   english: "English",
   french: "French",
   spanish: "Spanish",
-  mandarinChinese: "Mandarin Chinese",
+  mandarinChinese: "Mandarin Chinese (Simplified)",
   japanese: "Japanese",
   korean: "Korean",
 };
@@ -213,7 +213,8 @@ Deno.serve(async (req) => {
   const voiceName = voiceByLanguage[language] || "Puck";
   const languageCode = languageCodeByAppLanguage[language] ?? "en-US";
   const languageDisplay = displayLanguageByAppLanguage[language] ?? "English";
-  const ttsPrompt = `Pronounce the following ${languageDisplay} word: ${text}`;
+  const langHint = language === "mandarinChinese" ? "Mandarin Chinese (Simplified)" : languageDisplay;
+  const ttsPrompt = `Pronounce the following ${langHint} word: ${text}`;
   const primaryPayload = buildTtsPayload(ttsPrompt, voiceName, languageCode);
 
   console.log("Generating audio for:", ttsPrompt, "| app language:", language, "| voice:", voiceName, "| languageCode:", languageCode);
