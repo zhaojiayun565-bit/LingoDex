@@ -17,6 +17,34 @@ const voiceByLanguage: Record<string, string> = {
   korean: "Kore",
 };
 
+/** BCP-47 codes paired with app `language` keys (Gemini SpeechConfig.languageCode). */
+const languageCodeByAppLanguage: Record<string, string> = {
+  english: "en-US",
+  french: "fr-FR",
+  spanish: "es-ES",
+  mandarinChinese: "zh-CN",
+  japanese: "ja-JP",
+  korean: "ko-KR",
+};
+
+/** Human-readable language name for TTS prompt context (matches app `Language` display names). */
+const displayLanguageByAppLanguage: Record<string, string> = {
+  english: "English",
+  french: "French",
+  spanish: "Spanish",
+  mandarinChinese: "Mandarin Chinese",
+  japanese: "Japanese",
+  korean: "Korean",
+};
+
+/** Four core harm categories with BLOCK_NONE (TTS does not support civic integrity category). */
+const SAFETY_SETTINGS_BLOCK_NONE = [
+  { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+  { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+  { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+  { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+] as const;
+
 /** Prepends a 44-byte RIFF/WAV header for 24kHz mono 16-bit signed PCM. */
 function pcm16MonoToWav(pcm: Uint8Array, sampleRate = 24000): Uint8Array {
   const numChannels = 1;
@@ -67,6 +95,61 @@ function sampleRateFromMime(mime: string | undefined): number {
   if (!mime) return 24000;
   const m = /rate=(\d+)/i.exec(mime);
   return m ? parseInt(m[1], 10) : 24000;
+}
+
+type InlineAudio = { b64: string; mimeType: string };
+
+/** Finds the first inline audio part (Gemini may return multiple parts). */
+function extractInlineAudio(parts: unknown): InlineAudio | null {
+  if (!Array.isArray(parts)) return null;
+  for (const part of parts) {
+    const p = part as { inlineData?: { data?: string; mimeType?: string }; inline_data?: { data?: string; mime_type?: string } };
+    const inline = p?.inlineData ?? p?.inline_data;
+    const b64 = inline?.data;
+    if (b64 && typeof b64 === "string") {
+      const mimeType = inline?.mimeType ?? inline?.mime_type ?? "";
+      return { b64, mimeType };
+    }
+  }
+  return null;
+}
+
+/** Logs non-audio diagnostics when finishReason is OTHER or audio is missing (no user text in logs). */
+function logGeminiDiagnostics(label: string, geminiJson: Record<string, unknown>) {
+  const c = geminiJson?.candidates as Record<string, unknown>[] | undefined;
+  const cand0 = Array.isArray(c) && c.length > 0 ? (c[0] as Record<string, unknown>) : null;
+  const parts = cand0?.content as { parts?: unknown[] } | undefined;
+  const partsLen = Array.isArray(parts?.parts) ? parts!.parts!.length : 0;
+  console.warn(`gemini-tts ${label}:`, JSON.stringify({
+    promptFeedback: geminiJson.promptFeedback,
+    finishReason: cand0?.finishReason,
+    safetyRatings: cand0?.safetyRatings,
+    blockReason: cand0?.blockReason,
+    partsCount: partsLen,
+  }));
+}
+
+/** Builds request body for Gemini TTS. Omit languageCode on fallback — docs say language is auto-detected. */
+function buildTtsPayload(
+  promptText: string,
+  voiceName: string,
+  languageCode: string | undefined,
+) {
+  return {
+    contents: [{ parts: [{ text: promptText }] }],
+    safetySettings: [...SAFETY_SETTINGS_BLOCK_NONE],
+    generationConfig: {
+      responseModalities: ["AUDIO"],
+      speechConfig: {
+        ...(languageCode ? { languageCode } : {}),
+        voiceConfig: {
+          prebuiltVoiceConfig: {
+            voiceName,
+          },
+        },
+      },
+    },
+  };
 }
 
 Deno.serve(async (req) => {
@@ -128,43 +211,75 @@ Deno.serve(async (req) => {
   }
 
   const voiceName = voiceByLanguage[language] || "Puck";
+  const languageCode = languageCodeByAppLanguage[language] ?? "en-US";
+  const languageDisplay = displayLanguageByAppLanguage[language] ?? "English";
+  const ttsPrompt = `Pronounce the following ${languageDisplay} word: ${text}`;
+  const primaryPayload = buildTtsPayload(ttsPrompt, voiceName, languageCode);
 
-  const payload = {
-    contents: [{ parts: [{ text }] }],
-    generationConfig: {
-      responseModalities: ["AUDIO"],
-      speechConfig: {
-        voiceConfig: {
-          prebuiltVoiceConfig: {
-            voiceName,
-          },
-        },
-      },
-    },
-  };
+  console.log("Generating audio for:", ttsPrompt, "| app language:", language, "| voice:", voiceName, "| languageCode:", languageCode);
+  console.log(
+    "gemini-tts payload check: safetySettings entries=",
+    primaryPayload.safetySettings.length,
+    "BLOCK_NONE categories=",
+    primaryPayload.safetySettings.map((s) => s.category).join(",")
+  );
 
-  const geminiRes = await fetch(geminiUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
+  async function requestGemini(payload: ReturnType<typeof buildTtsPayload>) {
+    const geminiRes = await fetch(geminiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!geminiRes.ok) {
+      const errText = await geminiRes.text();
+      console.error("Gemini TTS API error:", geminiRes.status, errText);
+      return { ok: false as const, geminiJson: null as Record<string, unknown> | null };
+    }
+    const geminiJson = (await geminiRes.json()) as Record<string, unknown>;
+    return { ok: true as const, geminiJson };
+  }
 
-  if (!geminiRes.ok) {
-    const errText = await geminiRes.text();
-    console.error("Gemini TTS API error:", geminiRes.status, errText);
+  let { ok: geminiOk, geminiJson } = await requestGemini(primaryPayload);
+  if (!geminiOk || !geminiJson) {
     return new Response("Gemini TTS service unavailable", { status: 502, headers: corsHeaders });
   }
 
-  const geminiJson = await geminiRes.json();
-  const parts = geminiJson?.candidates?.[0]?.content?.parts;
-  const part = Array.isArray(parts) ? parts[0] : null;
-  const inline = part?.inlineData ?? part?.inline_data;
-  const b64 = inline?.data;
-  const mimeType = inline?.mimeType ?? inline?.mime_type ?? "";
+  const cand0 = geminiJson.candidates as Record<string, unknown>[] | undefined;
+  const finishReason = Array.isArray(cand0) && cand0[0] ? (cand0[0] as { finishReason?: string }).finishReason : undefined;
+  let parts = (cand0?.[0] as { content?: { parts?: unknown[] } } | undefined)?.content?.parts;
+  let inline = extractInlineAudio(parts);
 
-  if (!b64 || typeof b64 !== "string") {
+  console.log("Gemini finishReason:", finishReason, "| inline audio:", inline ? "yes" : "no");
+
+  if (!inline && finishReason === "OTHER") {
+    logGeminiDiagnostics("primary OTHER / no audio", geminiJson);
+  }
+
+  // Retry: intermittent OTHER with no audio — simpler prompt + voice only (no languageCode; model auto-detects language).
+  if (!inline) {
+    const fallbackPrompt = `Say: ${text.trim()}`;
+    const fallbackPayload = buildTtsPayload(fallbackPrompt, voiceName, undefined);
+    console.log("gemini-tts retry (fallback prompt, no languageCode):", fallbackPrompt, "| voice:", voiceName);
+    const second = await requestGemini(fallbackPayload);
+    if (second.ok && second.geminiJson) {
+      geminiJson = second.geminiJson;
+      const c2 = geminiJson.candidates as Record<string, unknown>[] | undefined;
+      const fr2 = Array.isArray(c2) && c2[0] ? (c2[0] as { finishReason?: string }).finishReason : undefined;
+      parts = (c2?.[0] as { content?: { parts?: unknown[] } } | undefined)?.content?.parts;
+      inline = extractInlineAudio(parts);
+      console.log("Gemini retry finishReason:", fr2, "| inline audio:", inline ? "yes" : "no");
+      if (!inline) {
+        logGeminiDiagnostics("after retry still no audio", geminiJson);
+      }
+    }
+  }
+
+  if (!inline) {
     return new Response("Empty audio from Gemini", { status: 502, headers: corsHeaders });
   }
+
+  const b64 = inline.b64;
+  const mimeType = inline.mimeType;
 
   let raw: Uint8Array;
   try {
