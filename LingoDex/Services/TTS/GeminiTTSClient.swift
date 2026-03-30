@@ -1,11 +1,12 @@
 import Foundation
 import AVFoundation
 
-actor MinimaxTTSClient: TTSClient {
+/// TTS via Supabase `gemini-tts` Edge Function (Gemini audio); expects WAV or MP3 bytes from the server.
+actor GeminiTTSClient: TTSClient {
     private let supabaseURL: URL
     private let anonKey: String
     private let authTokenProvider: @Sendable () -> String?
-    
+
     private var activePlayer: AVAudioPlayer?
     private var activeDelegate: TTSPlaybackDelegate?
 
@@ -18,7 +19,7 @@ actor MinimaxTTSClient: TTSClient {
     func speak(_ text: String, language: Language) async throws {
         guard let token = authTokenProvider() else { throw LingoDexServiceError.supabaseNotConfigured }
 
-        var request = URLRequest(url: supabaseURL.appendingPathComponent("/functions/v1/minimax-tts"))
+        var request = URLRequest(url: supabaseURL.appendingPathComponent("/functions/v1/gemini-tts"))
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue(anonKey, forHTTPHeaderField: "apikey")
@@ -26,26 +27,31 @@ actor MinimaxTTSClient: TTSClient {
         request.httpBody = try JSONEncoder().encode(["text": text, "language": language.rawValue])
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        
+
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
             let errorMsg = String(data: data, encoding: .utf8) ?? "Unknown server error"
             print("🚨 Supabase Error: \(errorMsg)")
             throw LingoDexServiceError.ttsFailed
         }
 
-        try await play(audioData: data)
+        let mime = httpResponse.value(forHTTPHeaderField: "Content-Type")?.lowercased() ?? ""
+        try await play(audioData: data, contentType: mime)
     }
 
-    private func play(audioData: Data) async throws {
-        // BEST PRACTICE: Write to a temp file to ensure iOS recognizes the MP3 codec
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp3")
+    private func play(audioData: Data, contentType: String) async throws {
+        let ext: String
+        if contentType.contains("mpeg") || contentType.contains("mp3") {
+            ext = "mp3"
+        } else {
+            ext = "wav"
+        }
+
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".\(ext)")
         try audioData.write(to: tempURL, options: .atomic)
-        
-        // Stop current playback to prevent overlaps
+
         activeDelegate?.cancel()
         activePlayer?.stop()
 
-        // Configure global audio session safely
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.playback, mode: .default, options: [.duckOthers])
         try session.setActive(true)
@@ -56,10 +62,10 @@ actor MinimaxTTSClient: TTSClient {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let delegate = TTSPlaybackDelegate(continuation: continuation, fileURL: tempURL)
             player.delegate = delegate
-            
+
             self.activePlayer = player
             self.activeDelegate = delegate
-            
+
             _ = player.play()
         }
     }

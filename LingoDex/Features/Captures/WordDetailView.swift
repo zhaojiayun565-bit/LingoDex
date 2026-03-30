@@ -331,7 +331,7 @@ struct WordDetailView: View {
                 try await deps.tts.speak(displayedWord.learnWord, language: .currentLearning)
             } catch {
                 // Surface TTS failures in Xcode console while debugging.
-                print("🔊 Minimax TTS Error: \(error.localizedDescription)")
+                print("🔊 TTS Error: \(error.localizedDescription)")
             }
             await MainActor.run {
                 isSpeakerPulsing = false

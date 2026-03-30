@@ -41,7 +41,7 @@ final class Dependencies {
             ?? ProcessInfo.processInfo.environment["SUPABASE_ANON_KEY"]
             ?? ""
         let url = URL(string: urlString) ?? URL(string: "https://placeholder.supabase.co")!
-        return MinimaxTTSClient(supabaseURL: url, anonKey: key) { [weak self] in
+        return GeminiTTSClient(supabaseURL: url, anonKey: key) { [weak self] in
             self?.auth.accessToken
         }
     }()

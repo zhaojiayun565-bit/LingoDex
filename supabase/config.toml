@@ -38,5 +38,5 @@ enable_signup = true
 [functions.recognize-object]
 verify_jwt = false
 
-[functions.minimax-tts]
+[functions.gemini-tts]
 verify_jwt = false
